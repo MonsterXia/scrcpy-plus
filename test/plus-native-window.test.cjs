@@ -25,11 +25,13 @@ function fixture(provisioning = {}, clock = Date) {
     return module.exports
   }
   const api = load('src/main/window/nativeMirror.ts', {
+    './mirrorTitle': load('src/main/window/mirrorTitle.ts', {}),
     '../lib/ios-provisioning/manager': require('./helpers/load-ios.cjs')('src/main/lib/ios-provisioning/manager.ts'),
     '../lib/ios-provisioning': { setIosProvisioningBusy() {}, prepareManagedIos: async () => {}, cancelIosSetup() {}, iosSetup: async (_udid, action) => ({phase:'idle', action:action.action}), ...provisioning },
     electron: { ipcMain: { handle: (key, handler) => handlers.set(key, handler) },
       screen: { getDisplayMatching: () => ({ workArea: { x: 0, y: 0, width: 1440, height: 900 } }) } },
     'share/main/lib/window': {
+      sendTo() {},
       create(options) {
         const window = new EventEmitter()
         window.options = options
@@ -586,5 +588,22 @@ test('unplugging during a ReplayKit retry closes that backend before reconnectin
   await f.nativeMirrors.reconcileIos([phone])
   assert.equal(f.backends.length, 3)
   assert.equal(f.nativeMirrors.list()[0].state, 'running')
+  await f.nativeMirrors.dispose()
+})
+
+test('APK installation uses only the running Android mirror owned by the sending document', async () => {
+  const f = fixture(), calls = []
+  f.Android.prototype.installApk = async function (file) { calls.push([this.target.key, file]) }
+  const phones = [target('a'), target('b'), usbIphone('01234567')]
+  for (const phone of phones) await f.nativeMirrors.start(phone)
+  await assert.rejects(f.invoke('nativeMirrorInstallApk', f.windows[1], '/good.apk'), /unavailable/)
+  for (const win of f.windows) await f.invoke('nativeMirrorOpen', win)
+  await f.invoke('nativeMirrorInstallApk', f.windows[1], '/good.apk')
+  await assert.rejects(f.invoke('nativeMirrorInstallApk', f.windows[2], '/good.apk'), /unavailable/)
+  const sender = f.windows[0].mirrorView.webContents
+  assert.throws(() => f.handlers.get('nativeMirrorInstallApk')({ sender, senderFrame: {} }, '/good.apk'), /unavailable/)
+  f.backends[1].state('disconnected')
+  await assert.rejects(f.invoke('nativeMirrorInstallApk', f.windows[1], '/good.apk'), /unavailable/)
+  assert.deepEqual(calls, [['android:b', '/good.apk']])
   await f.nativeMirrors.dispose()
 })

@@ -1,12 +1,13 @@
 import { screen } from 'electron'
 import type { BrowserWindow, WebContents, WebContentsView } from 'electron'
-import type { MirrorPlatform } from 'common/types'
+import type { MirrorHeading, MirrorPlatform } from 'common/types'
 import * as windows from 'share/main/lib/window'
 
 export interface MirrorSource {
   window: windows.MirrorWindow
   platform: MirrorPlatform
   deviceKey: string
+  heading: MirrorHeading
   claimGui?(): void
 }
 
@@ -22,13 +23,12 @@ interface Tile {
   leaveFullscreen(): void
 }
 
-const labels = { android: 'Android', harmony: 'HarmonyOS', ios: 'iOS' }
-const order = Object.keys(labels)
+const order: MirrorPlatform[] = ['android', 'harmony', 'ios']
 // Keep AppKit’s non-interactive strip above the visible content. The renderer
 // offsets its header by the same amount so its buttons stay inside the hit area.
 const toolInset = process.platform === 'darwin' ? 28 : 0
 const gap = 12,
-  header = 32
+  header = 44
 let host: BrowserWindow | undefined
 let sources: () => MirrorSource[] = () => []
 let interval: ReturnType<typeof setInterval> | undefined
@@ -48,7 +48,7 @@ function attach(source: MirrorSource, parent: BrowserWindow) {
     visible: !child.isMinimized(),
     hide: () => child.hide(),
     label: () =>
-      view.webContents.send('mergedMirrorLabel', labels[source.platform], toolInset),
+      view.webContents.send('mergedMirrorLabel', source.heading, toolInset, header),
     enterFullscreen: () => {
       fullscreenTile = tile
       position()
@@ -101,8 +101,8 @@ function release(tile: Tile) {
   child.contentView.addChildView(view)
   const [width, height] = child.getContentSize()
   view.setBounds({ x: 0, y: 0, width, height })
-  contents.send('mergedMirrorLabel', '')
-  if (tile.visible) child.show()
+  contents.send('mergedMirrorLabel', null)
+  if (tile.visible) child.showInactive()
   child.syncMirrorTitlebar?.()
 }
 

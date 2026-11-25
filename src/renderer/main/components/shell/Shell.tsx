@@ -29,6 +29,7 @@ export default observer(function Shell() {
   const focusAfterClose = useRef(false)
   const alive = useRef(false)
   const key = store.target?.key
+  const android = store.target?.platform === 'android'
   const selected = shells.find((shell) => shell.id === selectedId)
   const selectedRef = useRef(selected)
   selectedRef.current = selected
@@ -114,11 +115,18 @@ export default observer(function Shell() {
     }
   }
 
-  const commands = [
-    [t('reboot'), 'reboot\n'],
-    [t('getUdid'), 'bm get --udid\n'],
-    [t('batteryInfo'), 'hidumper -s BatteryService -a -i\n'],
-  ].filter(([label, command]) =>
+  const commands = (android
+    ? [
+        [t('model'), 'getprop ro.product.model\n'],
+        [t('plusOsVersion'), 'getprop ro.build.version.release\n'],
+        [t('batteryInfo'), 'dumpsys battery\n'],
+      ]
+    : [
+        [t('reboot'), 'reboot\n'],
+        [t('getUdid'), 'bm get --udid\n'],
+        [t('batteryInfo'), 'hidumper -s BatteryService -a -i\n'],
+      ]
+  ).filter(([label, command]) =>
     `${label} ${command}`.toLowerCase().includes(query.toLowerCase()),
   )
 
@@ -223,7 +231,7 @@ export default observer(function Shell() {
         onClose={() => setPalette(false)}
       >
         <div className={Style.commands}>
-          <p>{t('shellShortcutHint')}</p>
+          <p>{t(android ? 'androidShellShortcutHint' : 'shellShortcutHint')}</p>
           <input
             type="search"
             aria-label={t('typeCmd')}

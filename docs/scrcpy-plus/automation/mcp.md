@@ -24,6 +24,8 @@ codex mcp add scrcpy-plus -- /absolute/node /absolute/dist/cli/mcp.cjs --profile
 
 工具名将 CLI 操作中的点和连字符改为下划线；例如 `input.tap` → `input_tap`，`apps.clear-data` → `apps_clear_data`。参数与协议 schema 相同，使用 camelCase，另提供 timeoutMs（1—600000）。所有注册操作都可列出，具体平台可用性仍需 devices_capabilities；不支持能力返回错误。service.start 是显式 CLI 启动能力，不是 MCP 工具。
 
+工作区查询直接调用 `overview_get`、`apps_list`、`webviews_list` 等工具并传入 device。独立截图 `screen_snapshot` 也只需 device，返回原生图片。Android 和 Harmony 的应用、日志、布局及 shell 操作共用工具名。窗口级工具和各平台参数见[命令对照表](cli.md)。
+
 调用顺序：devices_list → devices_capabilities → sessions_start（取得自己的 lease）→ sessions_wait → screen_capture → input_tap（引用 frameId、截图像素）→ screen_capture（afterAction=输入结果的 observationToken）→ 检查结果 → sessions_release。截图返回 image content；有限日志/布局返回嵌入 resource blob（urn:uuid，不是可重新下载的 URL），元数据在 structuredContent/data。普通结果和错误也附带文本 JSON；isError 映射本地服务错误。
 
 取消通知和断管传播到请求 AbortSignal；不自动重发写操作。进程退出保留持久 lease，恢复时相同 profile/client 调用 sessions_leases，再明确 release；CLI 恢复时用 `--client codex-device`。关闭 MCP 不关闭桌面或其他人的会话。

@@ -51,8 +51,13 @@ function fixture() {
       hide() {
         win.visible = false
       },
+      showInactive() {
+        win.visible = true
+        win.emit('show')
+      },
       show() {
         win.visible = true
+        win.activations = (win.activations || 0) + 1
         win.emit('show')
       },
       focus() { win.focused = true },
@@ -100,7 +105,7 @@ function fixture() {
     }
     window.mirrorRatio = 0.5
     window.contentView.addChildView(view)
-    return { window, view, platform, deviceKey: platform + window.id }
+    return { window, view, platform, heading: { name: 'device ' + window.id, detail: platform }, deviceKey: platform + window.id }
   }
   return {
     ...api,
@@ -126,7 +131,7 @@ test('merge moves each original interactive document, preserves separate same-pl
   }
   assert.deepEqual(
     sources.map((s) => s.view.webContents.label),
-    ['HarmonyOS', 'iOS', 'Android', 'Android'],
+    sources.map(s => s.heading),
   )
   assert.ok(
     sources[2].view.rect.x < sources[3].view.rect.x &&
@@ -134,7 +139,7 @@ test('merge moves each original interactive document, preserves separate same-pl
   )
   const rects = sources.map(s => s.view.rect).sort((a, b) => a.x - b.x)
   const [width, height] = f.host.getContentSize()
-  assert.equal(height, Math.round((width - 3 * 12) / 2) + 32)
+  assert.equal(height, Math.round((width - 3 * 12) / 2) + 44)
   for (const source of sources) assert.equal(source.view.rect.y + source.view.webContents.toolInset, 0)
   assert.equal(rects[0].x, 0)
   assert.equal(rects.at(-1).x + rects.at(-1).width, width)
@@ -147,8 +152,10 @@ test('merge moves each original interactive document, preserves separate same-pl
   assert.equal(removed.window.syncedTitlebar, true)
   f.host.close()
   for (const s of sources) {
+    // Only the explicit show() in the merged-state check above activated it.
+    assert.equal(s.window.activations, 1)
     assert.equal(s.view.parent, s.window.contentView)
-    assert.equal(s.view.webContents.label, '')
+    assert.equal(s.view.webContents.label, null)
     assert.equal(s.window.visible, true)
     assert.equal(s.window.syncedTitlebar, true)
   }

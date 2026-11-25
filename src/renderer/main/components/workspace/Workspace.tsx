@@ -12,6 +12,7 @@ export default observer(function Workspace({
   onOpenSettings,
 }: PropsWithChildren<{ onOpenSettings: () => void }>) {
   useMainFeedback(store.theme)
+  const ios = store.overviewTarget?.platform === 'ios'
   const groups = [
     {
       title: t('workspaceDevices'),
@@ -25,7 +26,7 @@ export default observer(function Workspace({
       title: t('workspaceDebugging'),
       items: [
         { id: 'shell', label: t('shell'), icon: 'terminal' },
-        { id: 'hilog', label: t('hilog'), icon: 'list' },
+        { id: 'hilog', label: t(store.target?.platform === 'android' ? 'androidLogcat' : 'hilog'), icon: 'list' },
         { id: 'process', label: t('process'), icon: 'processor' },
         { id: 'layout', label: t('layout'), icon: 'debug' },
         { id: 'webview', label: t('webview'), icon: 'browser' },
@@ -77,8 +78,8 @@ export default observer(function Workspace({
                   aria-current={store.panel === item.id ? 'page' : undefined}
                   aria-controls={`panel-${item.id}`}
                   aria-label={item.label}
-                  disabled={item.id !== 'overview' && !!store.overviewTarget?.platform && store.overviewTarget.platform !== 'harmony'}
-                  title={item.id !== 'overview' && !!store.overviewTarget?.platform && store.overviewTarget.platform !== 'harmony' ? t('plusHarmonyToolsOnly') : item.label}
+                  disabled={item.id !== 'overview' && ios}
+                  title={item.id !== 'overview' && ios ? t('plusDeviceToolsPlatforms') : item.label}
                   onClick={() => store.selectPanel(item.id)}
                 >
                   <span className={`icon-${item.icon}`} aria-hidden="true" />
@@ -128,7 +129,7 @@ export default observer(function Workspace({
               title={!store.target ? t('targetNotConnected') : t('screencast')}
               onClick={() => {
                 void main
-                  .showScreencast()
+                  .showScreencast(store.target?.key)
                   .catch(() => notify(t('commonErr'), { icon: 'error' }))
               }}
             >

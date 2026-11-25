@@ -9,19 +9,20 @@ export async function installDroppedBundles(connectKey: string | undefined, file
     notify(t('installDropNoDevice'), { icon: 'error' })
     return false
   }
+  const extension = connectKey.startsWith('android:') ? '.apk' : '.hap'
   const paths: string[] = []
   let unreadable = false
   for (const file of files) {
     try {
       const path = preload.getPathForFile(file)
-      if (path.toLowerCase().endsWith('.hap')) paths.push(path)
+      if (path.toLowerCase().endsWith(extension)) paths.push(path)
     } catch {
       unreadable = true
     }
   }
   if (unreadable) notify(t('installDropReadFailed'), { icon: 'error' })
   if (paths.length === 0) {
-    if (!unreadable) notify(t('installDropUnsupported'), { icon: 'error' })
+    if (!unreadable) notify(t(extension === '.apk' ? 'apkDropUnsupported' : 'installDropUnsupported'), { icon: 'error' })
     return false
   }
   return installBundles(connectKey, paths)
@@ -31,27 +32,27 @@ export async function setMainStore(name: string, val: any) {
   await main.setMainStore(name, isObservable(val) ? toJS(val) : val)
 }
 
-export async function installBundles(connectKey: string, hapPaths?: string[]) {
+export async function installBundles(connectKey: string, packagePaths?: string[]) {
   let hasSuccess = false
 
-  if (!hapPaths) {
+  if (!packagePaths) {
+    const android = connectKey.startsWith('android:')
     const { filePaths } = await main.showOpenDialog({
       properties: ['openFile', 'multiSelections'],
-      filters: [{ name: t('hapFile'), extensions: ['hap'] }],
+      filters: [{ name: t(android ? 'apkFile' : 'hapFile'), extensions: [android ? 'apk' : 'hap'] }],
     })
     if (isEmpty(filePaths)) {
       return hasSuccess
     }
-    hapPaths = filePaths
+    packagePaths = filePaths
   }
 
-  for (let i = 0, len = hapPaths!.length; i < len; i++) {
-    const hapPath = hapPaths![i]
-    notify(escape(t('bundleInstalling', { path: hapPath })), { icon: 'info' })
+  for (const filePath of packagePaths) {
+    notify(escape(t('bundleInstalling', { path: filePath })), { icon: 'info' })
     try {
-      await main.installBundle(connectKey, hapPath!)
+      await main.installBundle(connectKey, filePath)
       hasSuccess = true
-      notify(escape(t('bundleInstalled', { path: hapPath })), { icon: 'success' })
+      notify(escape(t('bundleInstalled', { path: filePath })), { icon: 'success' })
     } catch {
       notify(t('installBundleErr'), { icon: 'error' })
     }

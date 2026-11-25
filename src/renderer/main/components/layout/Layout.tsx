@@ -1,5 +1,6 @@
 import { Dialog } from 'share/renderer/dialog/Dialog'
 import { observer } from 'mobx-react-lite'
+import { PannelLoading } from '../common/loading'
 import { t } from 'common/util'
 import Style from './Layout.module.scss'
 import Tree from './Tree'
@@ -80,7 +81,7 @@ export default observer(function Layout() {
     try {
       const data = await main.screencap(key)
       if (!valid()) return
-      const url = dataUrl.stringify(data, 'image/png')
+      const url = dataUrl.stringify(data, data.startsWith('iVBORw0KGgo') ? 'image/png' : 'image/jpeg')
       stage = 'decode'
       const dimensions = await new Promise<{ width: number; height: number }>(
         (resolve, reject) => {
@@ -281,7 +282,6 @@ export default observer(function Layout() {
               >
                 <Tree
                   hierarchy={hierarchy || undefined}
-                  isLoading={isLoading}
                   onSelect={select}
                   selected={selected}
                   onDomViewerCreate={(viewer) => {
@@ -317,13 +317,9 @@ export default observer(function Layout() {
             ])}
           </LunaSplitPane>
           {!hierarchy && !error && (
-            <div className={Style.empty} role="status">
-              {t(
-                !key
-                  ? 'targetNotConnected'
-                  : isLoading
-                    ? 'workspaceLoading'
-                    : 'layoutEmpty',
+            <div className={Style.empty}>
+              {key && isLoading ? <PannelLoading showLabel /> : (
+                <span role="status">{t(key ? 'layoutEmpty' : 'targetNotConnected')}</span>
               )}
             </div>
           )}
@@ -349,7 +345,7 @@ function transformHierarchy(hierarchy: Document) {
   const transformRecursively = (el: Element) => {
     const bounds = el.getAttribute('bounds')
     if (bounds) {
-      const match = bounds.match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/)
+      const match = bounds.match(/^\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]$/)
       if (match) {
         const left = toNum(match[1])
         const top = toNum(match[2])

@@ -9,7 +9,7 @@ import type { AutomationResult } from '../common/automation/protocol'
 import { version } from '../../package.json'
 
 const names = new Map(Object.keys(operations).map(name => [name.replace(/[.-]/g,'_'),name]))
-const nonDestructive = new Set(['devices.list','devices.capabilities','sessions.start'])
+const nonDestructive = new Set(['devices.list','devices.capabilities','sessions.start','mirrors.arrange','mirrors.focus'])
 export function createMcpServer(profilePath: string, clientName: string) {
   const server = new Server({name:'scrcpy-plus',version},{capabilities:{tools:{}}})
   server.setRequestHandler('tools/list',async()=>({tools:Array.from(names,([name,operation])=>{
@@ -43,6 +43,8 @@ function toMcpResult(result: AutomationResult) {
     const {bytes,...data}=result.data
     structuredContent={...result,data}
     if (isRecord(data.frame)) content.push({type:'image',data:Buffer.from(bytes).toString('base64'),mimeType:'image/png'})
+    else if (isRecord(data.artifact) && (data.artifact.mimeType === 'image/png' || data.artifact.mimeType === 'image/jpeg'))
+      content.push({type:'image',data:Buffer.from(bytes).toString('base64'),mimeType:data.artifact.mimeType})
     else if (isRecord(data.artifact)) content.push({type:'resource',resource:{uri:`urn:uuid:${data.artifact.artifactId}`,mimeType:String(data.artifact.mimeType),blob:Buffer.from(bytes).toString('base64')}})
     else throw new AutomationFault('INTERNAL','Invalid binary tool result')
   }

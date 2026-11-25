@@ -2282,6 +2282,12 @@
   ],
   "sharedSources": [
     {
+      "path": "src/renderer/main/components/devices/brandArtwork.ts",
+      "repository": "https://github.com/simple-icons/simple-icons",
+      "commit": "1b5de1079691ffd4b0f59376f8d02d30a96203b9",
+      "license": "Simple Icons 11.15.0 (CC0-1.0). Brand marks belong to their respective owners."
+    },
+    {
       "path": "src/share",
       "repository": "https://github.com/liriliri/electron-share",
       "commit": "f9898acb070bbadb7d9b9ea2b72ec2e40c26e943",

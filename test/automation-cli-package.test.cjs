@@ -18,8 +18,8 @@ test('built CLI package runs outside repository with no application or native de
 test('release package validation rejects missing tools, duplicate tools and invalid bin metadata', async () => {
   assert.ok(fs.existsSync('script/lib/automation-package-check.mjs'))
   const { assertInstalledClient } = await import('../script/lib/automation-package-check.mjs')
-  const operations=Object.fromEntries(Array.from({length:35},(_,i)=>['tool.'+i,{}]))
-  const tools=Object.keys(operations).map(name=>({name:name.replaceAll('.','_')}))
+  const { operations } = require('./helpers/load-automation.cjs')('src/common/automation/protocol.ts')
+  const tools=Object.keys(operations).map(name=>({name:name.replace(/[.-]/g,'_')}))
   const pkg={name:'scrcpy-plus-cli',version:'1.0.5-dev.2',bin:{'scrcpy-plus':'index.cjs','scrcpy-plus-mcp':'mcp.cjs'}}
   assertInstalledClient(pkg,pkg.version,tools,{operations})
   assert.throws(()=>assertInstalledClient(pkg,pkg.version,tools.slice(1),{operations}))

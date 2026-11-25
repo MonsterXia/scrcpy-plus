@@ -3,10 +3,14 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs'), vm = require('node:vm')
 const { transformSync } = require('esbuild')
 function load(extra = {}) {
- const module = { exports: {} }
- vm.runInNewContext(transformSync(fs.readFileSync('src/main/lib/devices/androidOverview.ts','utf8'),{loader:'ts',format:'cjs'}).code,
-  {module,exports:module.exports,require,TextDecoder,AbortController,setTimeout,clearTimeout,...extra})
- return module.exports
+ const globals = {Buffer, AbortController, setTimeout, clearTimeout, ...extra}
+ function source(name, dependencies = {}) {
+   const module = {exports: {}}
+   const code = transformSync(fs.readFileSync(`src/main/lib/devices/${name}.ts`, 'utf8'), {loader:'ts', format:'cjs'}).code
+   vm.runInNewContext(code, {module, exports:module.exports, require:id => dependencies[id] || require(id), ...globals})
+   return module.exports
+ }
+ return source('androidOverview', {'./androidShell':source('androidShell')})
 }
 const fixture = {'getprop':'[ro.product.model]: [Pixel 9]\n[ro.product.brand]: [Google]\n[ro.build.version.release]: [16]\n[ro.build.version.sdk]: [36]\n[ro.product.cpu.abilist]: [arm64-v8a]\n[ro.soc.model]: [Tensor]\n[ro.serialno]: [test]', 'uname -r':'6.1.0\n','wm size':'Physical size: 1080x2400\nOverride size: 720x1600','cat /proc/meminfo':'MemTotal: 8192000 kB'}
 test('Android overview reads bounded fixed commands, parses metadata and closes only shell sockets', async () => {

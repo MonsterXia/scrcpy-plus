@@ -4,14 +4,14 @@ const { setup, load, React } = require('./helpers/workspace-renderer.cjs')
 const createRoot = setup()
 const { act } = React
 
-async function fixture(t) {
+async function fixture(t, options = {}) {
   const origin = document.body.appendChild(document.createElement('button'))
   origin.textContent = 'Open details'
   origin.focus()
   const host = document.body.appendChild(document.createElement('div'))
   const root = createRoot(host)
   const info = { bundleName: 'com.example.app', label: 'Example', icon: '', system: false,
-    versionName: '1.0', apiTargetVersion: 20, vendor: 'Vendor', installTime: 0, releaseType: 'Release', mainAbility: 'EntryAbility' }
+    versionName: '1.0', apiTargetVersion: 20, vendor: 'Vendor', installTime: 0, releaseType: 'Release', mainAbility: 'EntryAbility', ...options.info }
   const Details = load('src/renderer/main/components/application/BundleInfoModal.tsx', {
     'common/util': { t: key => key },
     'licia/copy': () => {},
@@ -23,7 +23,7 @@ async function fixture(t) {
   let closes = 0
   function Harness() {
     const [visible, setVisible] = React.useState(true)
-    return React.createElement(Details, { bundleInfo: info, visible, busy: false,
+    return React.createElement(Details, { bundleInfo: info, android: options.android, visible, busy: false,
       onAction() {}, onClose: () => { closes++; setVisible(false) } })
   }
   await act(async () => root.render(React.createElement(Harness)))
@@ -45,4 +45,14 @@ test('application details traps keyboard focus and Escape restores its opener', 
   assert.equal(f.closes(), 1)
   assert.equal(f.host.querySelector('[role="dialog"]'), null)
   assert.equal(document.activeElement, f.origin)
+})
+
+test('Android details use activity terminology and hide unsupported cache maintenance', async t => {
+  const f = await fixture(t, {android: true, info: {supportsCleanCache: false}})
+  const labels = [...f.host.querySelectorAll('dt, button')].map(el => el.textContent)
+  assert.ok(labels.includes('androidMainActivity'))
+  assert.ok(labels.includes('cleanData'))
+  assert.ok(!labels.includes('mainAbility'))
+  assert.ok(!labels.includes('releaseType'))
+  assert.ok(!labels.includes('cleanCache'))
 })

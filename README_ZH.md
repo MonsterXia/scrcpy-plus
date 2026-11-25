@@ -6,13 +6,13 @@ Scrcpy Plus 作为本项目的正式延续，仓库已迁移至 `MonsterXia/scrc
 
 基于 Scrcpy Harmony 改造的安卓、鸿蒙与 iOS 投屏工作台。当前开发版的配置、能力边界与验证状态见[集成说明](docs/scrcpy-plus/integration.md)。安卓 USB/ADB 与 iOS AirPlay 已改为源码库集成，并在应用内显示；开发构建条件与未验收范围见集成说明。以下内容为继承的鸿蒙项目文档与历史发行信息。
 
-开发分支的合并窗口保留每台设备的实时画面和操作。鸿蒙和 USB iPhone 共用紧凑工具栏，iPhone 可从模式下拉框切换 ReplayKit 视频与 WDA 截图。见[投屏说明](docs/scrcpy-plus/integration.md)。
+开发分支的合并窗口保留每台设备的实时画面和操作。将一个或多个 APK 拖到安卓投屏画面（包括合并窗口中的安卓分栏），即可依次安装到对应设备。在概览中选中安卓手机后，可管理应用、截图、使用终端和 Logcat、查看进程和布局，以及调试前台应用已开放的 WebView。鸿蒙和 USB iPhone 共用紧凑工具栏，iPhone 可从模式下拉框切换 ReplayKit 视频与 WDA 截图。见[投屏说明](docs/scrcpy-plus/integration.md)。
 
 开发分支提供 iOS USB WDA 截图/控制，默认启用 ReplayKit 连续视频；iPhone 13 的视频、输入及重连基本验证通过，长稳与跨平台验收仍待完成，见 [iOS USB 配置](docs/scrcpy-plus/ios-usb-wda.md)。
 
 1.0.5-dev.3 开发预发布新增应用内 Apple ID 登录、WDA 自动准备，以及应用运行且手机连接时的自动续签。macOS 应用内登录、签名安装、启动及受控时钟触发的真实续签已验证；干净环境、实际七天到期及 Windows 仍待验收，见 [实现状态](docs/maintenance/ios-desktop-provisioning.md)。
 
-开发版自动化已提供共享本地服务、独立 Node CLI 与 [MCP stdio](docs/scrcpy-plus/automation/mcp.md)，支持会话、截图、输入和现有 Harmony 工具。参见[使用指南](docs/scrcpy-plus/automation/README.md)与 [Agent skill](.agents/skills/scrcpy-plus-automation/SKILL.md)。本机模拟流程通过，真机自动化及 Windows 自动化端到端验收仍待完成。
+开发版自动化已提供共享本地服务、独立 Node CLI 与 [MCP stdio](docs/scrcpy-plus/automation/mcp.md)，支持会话、截图、输入、投屏窗口布局、Android 与 Harmony 工作区工具，以及 USB iOS 概览。参见[使用指南](docs/scrcpy-plus/automation/README.md)与 [Agent skill](.agents/skills/scrcpy-plus-automation/SKILL.md)。本机模拟流程通过，真机自动化及 Windows 自动化端到端验收仍待完成。
 
 ## 1.0.5-dev.3 开发预发布
 

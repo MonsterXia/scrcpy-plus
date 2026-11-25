@@ -17,7 +17,7 @@ function help(operation?: string) {
       const flag='--'+name.replace(/[A-Z]/g,c=>'-'+c.toLowerCase())
       return `  ${flag}${rule.type==='boolean'?'':` <${rule.type}>`} ${definition.required.includes(name)?'(required)':''}${rule.enum?` [${rule.enum.join('|')}]`:''}${rule.minimum!==undefined?` min=${rule.minimum}`:''}${rule.maximum!==undefined?` max=${rule.maximum}`:''}`
     })
-    if (['screen.capture','logs.capture','layout.dump'].includes(operation)) lines.push('  --output <path> (required); --overwrite to replace an existing file')
+    if (['screen.capture','screen.snapshot','logs.capture','layout.dump'].includes(operation)) lines.push('  --output <path> (required); --overwrite to replace an existing file')
     if (operation==='input.text') lines.push('  --text-file <path> or --text-stdin replaces --text')
     if (operation==='shell.run') lines.push('  --command-file <path> or --command-stdin replaces --command')
     return `${operation.replace('.',' ')}: ${definition.description}\n${lines.join('\n')}\nOptions: --json --profile <absolute-path> --client <name> --timeout-ms <1..600000>\n`
@@ -48,7 +48,7 @@ function parseArgs(argv: string[]) {
   const schema = operations[operation]
   const allowed = new Set(['json','help','profile','client','timeout-ms', ...Object.keys(schema?.parameters || {}).map(key => key.replace(/[A-Z]/g, c => '-' + c.toLowerCase()))])
   if (operation === 'service.start') { allowed.add('app'); allowed.add('app-arg') }
-  if (['screen.capture','logs.capture','layout.dump'].includes(operation)) { allowed.add('output'); allowed.add('overwrite') }
+  if (['screen.capture','screen.snapshot','logs.capture','layout.dump'].includes(operation)) { allowed.add('output'); allowed.add('overwrite') }
   if (operation === 'input.text') { allowed.add('text-file'); allowed.add('text-stdin') }
   if (operation === 'shell.run') { allowed.add('command-file'); allowed.add('command-stdin') }
   if (appArgs.length && operation !== 'service.start') throw new AutomationFault('INVALID_ARGUMENT', '--app-arg requires service start')
@@ -58,7 +58,7 @@ function parseArgs(argv: string[]) {
     const value = flags[key.replace(/[A-Z]/g, c => '-' + c.toLowerCase())]
     if (value !== undefined) params[key] = rule.type === 'integer' || rule.type === 'number' ? Number(value) : rule.type === 'boolean' ? value === true : value
   }
-  if (!flags.help && ['screen.capture','logs.capture','layout.dump'].includes(operation) && (typeof flags.output !== 'string' || !flags.output)) throw new AutomationFault('INVALID_ARGUMENT', 'This command requires --output <path>')
+  if (!flags.help && ['screen.capture','screen.snapshot','logs.capture','layout.dump'].includes(operation) && (typeof flags.output !== 'string' || !flags.output)) throw new AutomationFault('INVALID_ARGUMENT', 'This command requires --output <path>')
   if (!flags.help && operation === 'input.text' && ['text','text-file','text-stdin'].filter(key => flags[key] !== undefined).length !== 1) throw new AutomationFault('INVALID_ARGUMENT', 'Choose exactly one of --text, --text-file or --text-stdin')
   if (!flags.help && operation === 'shell.run' && ['command','command-file','command-stdin'].filter(key => flags[key] !== undefined).length !== 1) throw new AutomationFault('INVALID_ARGUMENT', 'Choose exactly one of --command, --command-file or --command-stdin')
   const timeoutMs = flags['timeout-ms'] === undefined ? operation === 'service.start' ? 60000 : schema?.timeoutMs ?? 30000 : Number(flags['timeout-ms'])
@@ -87,7 +87,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
       const options = { profilePath: args.profilePath!, deadline, signal: io.signal }
       result = args.operation === 'service.start' ? await startService(args.app, args.appArgs!, clientId, options) : await callAutomation({ ...request!, clientId }, options)
     }
-    if (['logs.capture','layout.dump'].includes(args.operation!) && result.ok) result = success(requestId, await writeArtifact(result.data, args.output!, args.overwrite!))
+    if (['screen.snapshot','logs.capture','layout.dump'].includes(args.operation!) && result.ok) result = success(requestId, await writeArtifact(result.data, args.output!, args.overwrite!))
     if (args.operation === 'screen.capture' && result.ok) result = success(requestId, await writeScreenshot(result.data, args.output!, args.overwrite!))
   } catch (error) { result = failure(requestId, error) }
   const text = formatResult(result, json)

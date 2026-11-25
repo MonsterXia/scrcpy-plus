@@ -17,6 +17,7 @@ import { toPng, writeImageClipboard } from '../../lib/util'
 type ScreenshotImage = {
   data: string
   url: string
+  mime: 'image/png' | 'image/jpeg'
   width: number
   height: number
   size: number
@@ -62,7 +63,8 @@ export default observer(function Screenshot() {
     try {
       const data = await main.screencap(key)
       if (!valid()) return
-      const url = dataUrl.stringify(data, 'image/jpeg')
+      const mime = data.startsWith('iVBORw0KGgo') ? 'image/png' : 'image/jpeg'
+      const url = dataUrl.stringify(data, mime)
       const dimensions = await new Promise<{ width: number; height: number }>(
         (resolve, reject) =>
           loadImg(url, (error, img) => {
@@ -72,7 +74,7 @@ export default observer(function Screenshot() {
           }),
       )
       if (valid())
-        setImage({ data, url, ...dimensions, size: base64.decode(data).length })
+        setImage({ data, url, mime, ...dimensions, size: base64.decode(data).length })
     } catch {
       if (valid()) {
         setImage(null)
@@ -92,7 +94,7 @@ export default observer(function Screenshot() {
     current.copying = true
     setCopying(true)
     try {
-      const png = await toPng(snapshot.url)
+      const png = snapshot.mime === 'image/png' ? snapshot.url : await toPng(snapshot.url)
       if (!valid()) return
       await writeImageClipboard(dataUrl.parse(png)!.data, 'image/png')
       if (valid()) notify(t('copied'), { icon: 'success' })
@@ -105,7 +107,7 @@ export default observer(function Screenshot() {
   }
   function save() {
     if (image)
-      download(convertBin(image.data, 'Blob'), 'screenshot.jpeg', 'image/jpeg')
+      download(convertBin(image.data, 'Blob'), image.mime === 'image/png' ? 'screenshot.png' : 'screenshot.jpeg', image.mime)
   }
   const button = (
     icon: string,
@@ -176,7 +178,7 @@ export default observer(function Screenshot() {
         </div>
         <span className={Style.meta}>
           {image
-            ? `${image.width}×${image.height} · JPEG · ${fileSize(image.size)}B`
+            ? `${image.width}×${image.height} · ${image.mime === 'image/png' ? 'PNG' : 'JPEG'} · ${fileSize(image.size)}B`
             : ''}
         </span>
       </div>

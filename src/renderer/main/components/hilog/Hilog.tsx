@@ -21,13 +21,19 @@ interface LogFilter {
   tag?: string
 }
 
+function displayTag(entry: any) {
+  return entry.domain === undefined
+    ? entry.tag
+    : `${getTypePrefix(entry.type)}${entry.domain}/${entry.tag}`
+}
+
 function matchesFilter(entry: any, filter: LogFilter) {
   return (
     (!filter.priority || entry.level >= filter.priority) &&
     String(entry.bundleName || '')
       .toLowerCase()
       .includes((filter.package || '').trim().toLowerCase()) &&
-    `${getTypePrefix(entry.type)}${entry.domain}/${entry.tag}`
+    displayTag(entry)
       .toLowerCase()
       .includes((filter.tag || '').trim().toLowerCase())
   )
@@ -53,6 +59,7 @@ export default observer(function Hilog() {
   const filterRef = useRef(filter)
   filterRef.current = filter
   const key = store.target?.key
+  const android = store.target?.platform === 'android'
   const active = store.panel === 'hilog'
 
   function clear() {
@@ -83,6 +90,13 @@ export default observer(function Hilog() {
         /* Already closed or disconnected. */
       }
     }
+    const offEnd = main.on('hilogEnded', (id) => {
+      if (current() && hilogIdRef.current === id) {
+        hilogIdRef.current = ''
+        setSessionId('')
+        setStatus('error')
+      }
+    })
     const off = main.on('hilogEntry', (id, entry) => {
       if (
         !current() ||
@@ -97,7 +111,7 @@ export default observer(function Hilog() {
         pid: entry.pid,
         tid: entry.tid,
         priority: entry.level,
-        tag: `${getTypePrefix(entry.type)}${entry.domain}/${entry.tag}`,
+        tag: displayTag(entry),
         package: entry.bundleName,
         message: entry.message,
       })
@@ -130,6 +144,7 @@ export default observer(function Hilog() {
     return () => {
       disposed = true
       off()
+      offEnd()
       const id = hilogIdRef.current
       hilogIdRef.current = ''
       if (id) void close(id)
@@ -161,7 +176,7 @@ export default observer(function Hilog() {
     const data = entriesRef.current
       .map((entry) =>
         trim(
-          `${dateFormat(entry.date, 'mm-dd HH:MM:ss.l')} ${rpad(entry.pid, 5, ' ')} ${rpad(entry.tid, 5, ' ')} ${toLetter(entry.level)} ${getTypePrefix(entry.type)}${entry.domain}/${entry.tag}: ${entry.message}`,
+          `${dateFormat(entry.date, 'mm-dd HH:MM:ss.l')} ${rpad(entry.pid, 5, ' ')} ${rpad(entry.tid, 5, ' ')} ${toLetter(entry.level)} ${displayTag(entry)}: ${entry.message}`,
         ),
       )
       .join('\n')
@@ -195,7 +210,7 @@ export default observer(function Hilog() {
   return (
     <div className={Style.page}>
       <header className={Style.heading}>
-        <h1>{t('hilog')}</h1>
+        <h1>{t(android ? 'androidLogcat' : 'hilog')}</h1>
         <p>{t('hilogDescription')}</p>
       </header>
       <div className={Style.toolbar}>
@@ -224,12 +239,13 @@ export default observer(function Hilog() {
             <option value={4}>{t('hilogLevelInfo')}</option>
             <option value={5}>{t('hilogLevelWarning')}</option>
             <option value={6}>{t('hilogLevelError')}</option>
+            {android && <option value={7}>{t('androidLogFatal')}</option>}
           </select>
         </label>
         <input
           type="search"
-          aria-label={t('bundleName')}
-          placeholder={t('bundleName')}
+          aria-label={t(android ? 'androidLogPid' : 'bundleName')}
+          placeholder={t(android ? 'androidLogPid' : 'bundleName')}
           value={filter.package || ''}
           onChange={(event) =>
             setFilter({ ...filter, package: event.target.value })
@@ -330,13 +346,13 @@ export default observer(function Hilog() {
           <div className={Style.empty}>{t('hilogNoResults')}</div>
         )}
       </div>
-      <footer className={Style.footer}>{t('hilogExportHint')}</footer>
+      <footer className={Style.footer}>{t(android ? 'androidLogcatExportHint' : 'hilogExportHint')}</footer>
     </div>
   )
 })
 
 function toLetter(priority: number) {
-  return ['?', '?', 'V', 'D', 'I', 'W', 'E'][priority]
+  return ['?', '?', 'V', 'D', 'I', 'W', 'E', 'F'][priority]
 }
 function getTypePrefix(type: number) {
   return ['A', 'I', 'C', 'K', 'P'][type]

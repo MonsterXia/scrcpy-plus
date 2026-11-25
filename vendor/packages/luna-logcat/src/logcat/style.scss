@@ -80,7 +80,8 @@
       }
     }
 
-    .E {
+    .E,
+    .F {
       .priority {
         @include theme-var(background-color, color-error-text, $theme);
       }

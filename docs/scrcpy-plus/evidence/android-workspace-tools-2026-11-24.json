@@ -1,0 +1,65 @@
+{
+  "date": "2026-11-24",
+  "host": "macOS",
+  "deviceModel": "M2007J1SC",
+  "deviceOS": "Android 13 (API 33)",
+  "method": "Production Electron build, Playwright-driven desktop navigation and main-window IPC, physical USB device over the built-in ADB transport. The disposable app hosted a local WebView with debugging enabled.",
+  "passed": true,
+  "checks": {
+    "sidebar": "Selected the single USB Android device in the overview and verified all seven navigation buttons were enabled.",
+    "applications": {
+      "metadata": {
+        "userPackages": 79,
+        "realTitlesAndIcons": true
+      },
+      "disposableApkInstalled": {
+        "version": "1.0",
+        "launcher": true
+      },
+      "launchedAndVerifiedForeground": true
+    },
+    "screenshot": "1080×2340 · PNG",
+    "interactiveShell": "Typed a printf command into the desktop terminal and observed the expected output from the device.",
+    "logcat": "Emitted a unique test message from the device shell and observed its tag and text on the desktop log stream.",
+    "processes": {
+      "rows": 919,
+      "testPackage": true
+    },
+    "layout": {
+      "panelLoaded": true,
+      "uiAutomatorXmlWithBounds": true,
+      "nodeCount": 8
+    },
+    "mirrorAndTools": {
+      "mirrorRunning": true,
+      "capturedDuringMirror": true,
+      "toolsAvailableAfterMirrorClosed": true
+    },
+    "webview": {
+      "repeatedSuccessfulListings": 12,
+      "foregroundQuery": true,
+      "fixtureAttached": true,
+      "devtoolsDocumentTitle": "Scrcpy Plus Menu Check"
+    },
+    "cleanup": "Uninstalled the disposable WebView fixture and verified its package was absent from the device user application list."
+  },
+  "bundleSha256": {
+    "dist/main/index.js": "7280d7ee3d34262fa7bdd965ebd0283b4b24345df5f55a86339af5d0377397e4",
+    "dist/preload/index.js": "369cb00d9e5a71b647147802a0dde98e522251aee64d2a3d2593b9a89d7c7c88",
+    "dist/resources/android/scrcpy-server": "1cb7bec832d8f779f63e95e2cab9dc44b7b8b29aff0c7ce875677b61247939e1"
+  },
+  "regression": {
+    "applicationTests": {
+      "passed": 1298,
+      "failed": 0,
+      "skipped": 2
+    },
+    "licia": {
+      "modes": 2,
+      "passedPerMode": 606,
+      "pendingPerMode": 4
+    },
+    "lintAndI18n": "passed",
+    "strictTypeScript": "51 remaining diagnostics in the repository, down from the 56 diagnostics in the pre-menu baseline."
+  }
+}

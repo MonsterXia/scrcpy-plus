@@ -368,6 +368,10 @@ function terminalBoundary() {
     dispose() {
       this.disposed = true
     }
+    onBinary(fn) {
+      this.binary = fn
+      return { dispose: () => { this.binary = null } }
+    }
     onData(fn) {
       this.input = fn
       return {
@@ -715,4 +719,56 @@ test('hilog export retains the same bounded entries as real Luna, paused events 
     0,
     'clear must also reset Luna display bookkeeping before future eviction',
   )
+})
+
+test('Android shell binds before draining the first output, forwards binary input and shows only Android shortcuts', async (t) => {
+  const b = terminalBoundary(), listeners = new Map(), writes = []
+  const id = 'android:shell:session'
+  const f = await fixture(t, 'shell/Shell', {
+    ...b,
+    store: observable({ target: { key: 'android:A', platform: 'android' }, panel: 'shell', theme: 'light' }),
+    main: {
+      on(event, fn) { listeners.set(event, fn); return () => listeners.delete(event) },
+      createShell: async () => id,
+      writeShell: async (session, data) => {
+        assert.equal(session, id)
+        writes.push(data)
+        if (data === '') listeners.get('shellData')(id, 'initial prompt $ ')
+      },
+      killShell: async () => {},
+    },
+  })
+  assert.equal(b.instances[0].lastWrite, 'initial prompt $ ')
+  await act(async () => b.instances[0].binary('\u0000\u00fe'))
+  assert.deepEqual(Array.from(writes[1]), [0, 254])
+  await act(async () => button(f.host, 'shortcut').click())
+  assert.match(f.host.textContent, /getprop ro.product.model/)
+  assert.doesNotMatch(f.host.textContent, /bm get|hidumper/)
+  const battery = [...f.host.querySelectorAll('dialog button')].find(node => node.textContent.includes('dumpsys battery'))
+  await act(async () => battery.click())
+  assert.equal(writes.at(-1), 'dumpsys battery\n')
+  await act(async () => listeners.get('shellEnded')(id))
+  assert.match(f.host.textContent, /androidShellEnded/)
+  await act(async () => f.root.unmount())
+  assert.equal(b.instances[0].binary, null)
+})
+
+test('Android logcat exposes PID filtering, exports the unmodified tag and handles EOF', async (t) => {
+  const f = await logFixture(t)
+  await act(async () => runInAction(() => {
+    f.store.target = { key: 'android:A', platform: 'android', name: 'Phone' }
+  }))
+  const id = 'android:logcat:1'
+  await act(async () => f.opens[1].resolve(id))
+  assert.equal(f.host.querySelector('h1').textContent, 'androidLogcat')
+  assert.ok(f.host.querySelector('input[aria-label="androidLogPid"]'))
+  assert.ok(f.host.querySelector('option[value="7"]'))
+  await act(async () => f.listeners.get('hilogEntry')(id, {
+    date: new Date(), pid: 42, tid: 43, level: 7, tag: 'CrashTag', bundleName: '42', message: 'first\nsecond',
+  }))
+  await act(async () => button(f.host, 'save').click())
+  assert.match(f.downloads[0][0], / F CrashTag: first\nsecond/)
+  await act(async () => f.listeners.get('hilogEnded')(id))
+  assert.ok(f.host.querySelector('[role="alert"]'))
+  assert.equal(button(f.host, 'pause').disabled, true)
 })

@@ -1,6 +1,6 @@
 # Harmony 工具逐操作登记（M4 本机候选）
 
-所有命令显式指定 `--device <key>`，不跟随 GUI 当前设备。Android/iOS 不开放这些 Harmony 专用工具。下面逐项登记已实现的命令与验证层级。
+所有命令显式指定 `--device <key>`，不跟随 GUI 当前设备。本表记录 Harmony 的实现与历史验证，其他平台支持范围见[当前矩阵](capabilities.md)。下面逐项登记已实现的命令与验证层级。
 
 | 需求 | 操作/拟定命令 | 共享源码入口 | 当前状态/验收 |
 | --- | --- | --- | --- |
@@ -18,7 +18,7 @@
 | AUTO-06/07 | `ports add/remove` | hdc/port.ts forward/reverse/remove | 已实现；仅显式条目、参数边界专项通过；真机forward/reverse增删及保留其他规则通过 |
 | AUTO-06/07 | `shell run` | hdc/finiteShell.ts runFiniteShell | 已实现；退出码、截止/取消、输出截断专项通过 |
 
-未扩展：进程结束、通用文件传输、Android 新工具、iOS 控制、无 Node 分发。它们不属于本轮现有能力适配。
+M4 当时的范围限于 Harmony 工具。
 
 验收需要区分共享业务单测、真实 loopback/CLI、模拟传输以及真机。早期批次未发现Harmony；M6新增实际设备只读验证，见[验收交接](acceptance.md)。后续[真机验收](../../maintenance/agent-automation-device-acceptance-2026-11-16.md)补齐端口规则增删，应用写入仍pending；不以模拟传输冒充真机通过。
 

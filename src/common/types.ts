@@ -1,6 +1,8 @@
 export interface ITarget {
   key: string
   name: string
+  model?: string
+  brand?: string
   ohosVersion: string
   sdkVersion: string
   platform?: 'android' | 'harmony' | 'ios'
@@ -8,6 +10,9 @@ export interface ITarget {
   transport?: 'usb' | 'network' | 'receiver'
   state?: 'ready' | 'unauthorized' | 'offline' | 'waiting' | 'unavailable'
 }
+
+export interface MirrorHeading { name: string; detail: string }
+export type MirrorTarget = ITarget & { mirrorTitle: string; mirrorHeading: MirrorHeading }
 
 export interface DeviceDiscovery {
   targets: ITarget[]
@@ -17,6 +22,7 @@ export interface MirrorSession {
   id: string
   deviceKey: string
   name: string
+  brand?: string
   platform: string
   state: 'starting' | 'authorizing' | 'waiting' | 'running' | 'disconnected' | 'error' | 'stopping'
   connectionIssue?: 'usb-access' | 'ios-wda' | 'ios-wda-update' | 'ios-cleanup-unknown'
@@ -28,7 +34,7 @@ export type NativeMirrorInput = (
   | { type: 'key'; keyCode: number }
   | { type: 'text'; text: string }
 ) & { display?: { width: number; height: number; rotation: number } }
-export interface NativeMirrorInfo { id: string; target: ITarget; state: MirrorSession['state']; connectionIssue?: MirrorSession['connectionIssue']; videoMode?: MirrorSession['videoMode'] }
+export interface NativeMirrorInfo { id: string; target: MirrorTarget; state: MirrorSession['state']; connectionIssue?: MirrorSession['connectionIssue']; videoMode?: MirrorSession['videoMode'] }
 export interface NativeMirrorFrame {
   format?: 'png'
   rotation?: number
@@ -43,6 +49,7 @@ export interface NativeMirrorFrame {
 }
 export type IpcNativeMirrorInfo = () => Promise<NativeMirrorInfo>
 export type IpcNativeMirrorOpen = (restart?: boolean) => Promise<void>
+export type IpcNativeMirrorInstallApk = (filePath: string) => Promise<void>
 export type IpcNativeMirrorVideo = (enabled: boolean, reason?: 'decode-error') => Promise<void>
 export type IpcNativeMirrorInput = (input: NativeMirrorInput) => Promise<void>
 export type IpcNativeMirrorAck = (sequence: number) => Promise<void>
@@ -69,6 +76,7 @@ export interface IBundleInfo {
   vendor: string
   installTime: number
   releaseType: string
+  supportsCleanCache?: boolean
   mainAbility?: string
 }
 
@@ -118,7 +126,7 @@ export type IpcCleanBundleCache = IpcStopBundle
 export type IpcUninstallBundle = IpcStopBundle
 export type IpcGetProcesses = (connectKey: string) => Promise<IProcess[]>
 export type IpcCreateShell = (connectKey: string) => Promise<string>
-export type IpcWriteShell = (sessionId: string, data: string) => Promise<void>
+export type IpcWriteShell = (sessionId: string, data: string | Uint8Array) => Promise<void>
 export type IpcKillShell = (sessionId: string) => void
 export type IpcDumpWindowHierarchy = (connectKey: string) => Promise<string>
 export type IpcListForwards = (connectKey: string) => Promise<

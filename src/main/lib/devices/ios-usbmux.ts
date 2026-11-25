@@ -104,13 +104,14 @@ export async function getIosOverview(target: ITarget): Promise<Record<string, st
     return result
   } finally { stream.destroy() }
 }
-async function deviceName(id: number) {
+async function deviceIdentity(id: number) {
   const { stream, value } = await queryMux({ MessageType: 'Connect', DeviceID: id, PortNumber: 32498 }, true) // htons(62078)
   try {
     if (value.Number !== 0) throw new Error('Apple device unavailable')
     const name = await lockdownValue(stream, 'DeviceName')
     if (!name) throw new Error('Apple device requires trust')
-    return name
+    const model = await lockdownValue(stream, 'ProductType', AbortSignal.timeout(800)).catch(() => undefined)
+    return { name, model }
   } finally { stream.destroy() }
 }
 export function muxDevices(value: any): Array<{ id: number; serial: string }> {
@@ -126,9 +127,10 @@ export function muxDevices(value: any): Array<{ id: number; serial: string }> {
 export async function discoverIos(): Promise<ITarget[]> {
   const devices = muxDevices((await queryMux({ MessageType: 'ListDevices' })).value)
   return Promise.all(devices.map(async device => {
-    let name = device.serial, state: ITarget['state'] = 'unauthorized'
-    try { name = await deviceName(device.id); state = 'ready' } catch { /* USB detection is useful before trust. */ }
-    return { key: `ios:${device.serial}`, connectionId: device.serial, name,
+    let identity: { name: string; model?: string } = { name: device.serial }
+    let state: ITarget['state'] = 'unauthorized'
+    try { identity = await deviceIdentity(device.id); state = 'ready' } catch { /* USB detection is useful before trust. */ }
+    return { key: `ios:${device.serial}`, connectionId: device.serial, ...identity,
       platform: 'ios' as const, transport: 'usb' as const, state, ohosVersion: '', sdkVersion: '' }
   }))
 }

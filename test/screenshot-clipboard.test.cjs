@@ -7,12 +7,13 @@ const createRoot = setup(),
 
 // Load the production component and both real clipboard helpers. Only the
 // browser clipboard permission/write boundary and JPEG conversion are faked.
-async function fixture(t) {
+async function fixture(t, capture = 'aGVsbG8=') {
   const writes = [],
     notices = [],
+    downloads = [],
     store = observable({ target: { key: 'A' } })
   const globals = {
-    main: { screencap: async () => 'aGVsbG8=' },
+    main: { screencap: async () => capture },
     Blob,
     ClipboardItem: class {
       constructor(data) {
@@ -51,6 +52,7 @@ async function fixture(t) {
         ...local,
         toPng: async () => 'data:image/png;base64,aGVsbG8=',
       },
+      'licia/download': (...args) => downloads.push(args),
       'licia/loadImg': (_, callback) =>
         callback(null, { width: 360, height: 720 }),
       'luna-image-viewer/react': () =>
@@ -69,7 +71,7 @@ async function fixture(t) {
     [...host.querySelectorAll('button')].find(
       (button) => button.textContent === 'copy',
     )
-  return { host, store, writes, notices, copy }
+  return { host, store, writes, notices, downloads, copy }
 }
 
 test('screenshot Copy stays busy until the actual clipboard write succeeds', async (t) => {
@@ -128,3 +130,19 @@ for (const outcome of ['resolve', 'reject']) {
     assert.equal(f.copy().disabled, false)
   })
 }
+
+test('Android PNG screenshots preserve their native bytes, filename and MIME type on save and copy', async (t) => {
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5f0AAAAASUVORK5CYII='
+  const f = await fixture(t, png)
+  assert.match(f.host.textContent, /PNG/)
+  const save = [...f.host.querySelectorAll('button')].find(button => button.textContent === 'save')
+  await act(async () => save.click())
+  const [[file, name, type]] = f.downloads
+  assert.equal(name, 'screenshot.png')
+  assert.equal(type, 'image/png')
+  assert.equal(Buffer.from(await file.arrayBuffer()).toString('base64'), png)
+  await act(async () => f.copy().click())
+  const clipboard = f.writes[0].items[0].data['image/png']
+  assert.equal(Buffer.from(await clipboard.arrayBuffer()).toString('base64'), png)
+  await act(async () => f.writes[0].resolve())
+})

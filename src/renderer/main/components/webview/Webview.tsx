@@ -26,6 +26,7 @@ export default observer(function Webview() {
 
   const connectKey = store.target?.key
   const active = store.panel === 'webview'
+  const android = store.target?.platform === 'android'
 
   useEffect(() => {
     let destroyed = false
@@ -54,7 +55,7 @@ export default observer(function Webview() {
       store.panel === 'webview'
 
     async function getWebviews() {
-      if (!isCurrent() || busy) return
+      if (!connectKey || !isCurrent() || busy) return
       clearTimeout(timeout)
       busy = true
       setLoading(true)
@@ -187,7 +188,15 @@ export default observer(function Webview() {
             type="button"
             data-action="debug"
             disabled={!selection}
-            onClick={() => {
+            onClick={async () => {
+              if (android && connectKey) {
+                try {
+                  await main.inspectAndroidWebview(connectKey, topBundle.pid, selection.id)
+                } catch {
+                  if (store.target?.key === connectKey && store.panel === 'webview') setError(true)
+                }
+                return
+              }
               let url = 'devtools://devtools/bundled/inspector.html'
               url += `?ws=${selection.webSocketDebuggerUrl.replace('ws://', '')}`
               main.openWindow(url, 'devtools')
@@ -198,7 +207,7 @@ export default observer(function Webview() {
           <button
             type="button"
             data-action="browser"
-            disabled={!selection}
+            disabled={!selection || (android && !/^https?:\/\//i.test(selection.url))}
             onClick={() => main.openExternal(selection.url)}
           >
             {t('openWithBrowser')}
@@ -227,7 +236,7 @@ export default observer(function Webview() {
           if (!row) return
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault()
-            dataGridRef.current?.selectSingle((row as any).dataGridNode)
+            row.click()
           } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
             event.preventDefault()
             const rows = Array.from(
@@ -239,7 +248,7 @@ export default observer(function Webview() {
               rows[rows.indexOf(row) + (event.key === 'ArrowDown' ? 1 : -1)]
             if (next) {
               next.focus()
-              dataGridRef.current?.selectSingle((next as any).dataGridNode)
+              next.click()
               next.scrollIntoView?.({ block: 'nearest' })
             }
           }
@@ -248,7 +257,7 @@ export default observer(function Webview() {
         <LunaDataGrid
           rowHeight={28}
           key={topBundle.pid}
-          onSelect={(node) => setSelected(node.data)}
+          onSelect={(node) => setSelected(Array.isArray(node) ? node[0]?.data : node.data)}
           onDeselect={() => setSelected(null)}
           className={Style.webviews}
           filter=""
@@ -270,7 +279,7 @@ export default observer(function Webview() {
                   ? 'workspaceLoading'
                   : filter.trim() && webviews.length
                     ? 'webviewNoResults'
-                    : 'webviewEmpty',
+                    : android ? 'androidWebviewEmpty' : 'webviewEmpty',
             )}
           </div>
         )}

@@ -86,12 +86,15 @@ const initIpc = once(() => {
     ...screencast.getSources(),
     ...mirrorSessions.getSources(),
   ]))
-  const mirrorSources = () => [...screencast.getSources(), ...mirrorSessions.getSources()]
-  handleEvent('getMirrorLayout', () => getMirrorLayout(mirrorSources))
-  handleEvent('focusMirror', (key: string) => focusMirror(key, mirrorSources))
-  handleEvent('applyMirrorLayout', (request: MirrorLayoutRequest) => {
-    if (!win || win.isDestroyed()) return
-    applyMirrorLayout(request, () => [...screencast.getSources(), ...mirrorSessions.getSources()],
-      screen.getDisplayMatching(win.getBounds()).workArea)
-  })
+  handleEvent('getMirrorLayout', currentMirrorLayout)
+  handleEvent('focusMirror', focusWorkspaceMirror)
+  handleEvent('applyMirrorLayout', setWorkspaceLayout)
 })
+
+const mirrorSources = () => [...screencast.getSources(), ...mirrorSessions.getSources()]
+export const currentMirrorLayout = () => getMirrorLayout(mirrorSources)
+export const focusWorkspaceMirror = (key: string) => focusMirror(key, mirrorSources)
+export function setWorkspaceLayout(request: MirrorLayoutRequest) {
+  if (!win || win.isDestroyed()) throw new Error('Main window unavailable')
+  applyMirrorLayout(request, mirrorSources, screen.getDisplayMatching(win.getBounds()).workArea)
+}

@@ -115,7 +115,9 @@ test('USB idle timeouts do not end ADB authentication and real disconnects still
 })
 test('direct USB discovery distinguishes identical models without authenticating or launching tools', async t => {
   const f = androidFixture(directory(t))
+  f.devices[0].raw.manufacturerName = 'Xiaomi'
   const devices = await f.discoverAndroid()
+  assert.equal(devices[0].brand, 'Xiaomi')
   assert.deepEqual(Array.from(devices, d => d.key), ['android:a', 'android:b'])
   assert.equal(devices[0].name, devices[1].name)
   assert.ok(f.devices.every(d => d.connects === 0))
@@ -346,4 +348,66 @@ test('Android does not fall back to another transport after authentication or ge
  const f=androidFixture(directory(t),fs.promises,async()=>{calls++;throw Error('unexpected')})
  f.devices[0].raw.serialNumber='a';f.devices[0].connect=async()=>{throw Error('disconnected')}
  const [target]=await f.discoverAndroid();await assert.rejects(f.getAndroidOverview(target),/disconnected/);assert.equal(calls,0)
+})
+
+test('APK uploads are streamed and installed in drop order, with cleanup and recovery after failure', async t => {
+  const root = directory(t), f = androidFixture(root)
+  const mirror = new f.AndroidMirror({ key: 'android:a', connectionId: 'a' })
+  await mirror.start(() => {}, () => {})
+  t.after(() => mirror.close())
+  const pushed = [], commands = [], removed = []
+  let disposed = 0
+  Object.assign(mirror.lease.adb, {
+    sync: async () => ({
+      async write({ filename, file }) {
+        assert.match(filename, /^\/data\/local\/tmp\/scrcpy-plus-[\da-f-]+\.apk$/)
+        const chunks = []
+        for await (const chunk of file) chunks.push(chunk)
+        pushed.push({ filename, data: Buffer.concat(chunks) })
+      },
+      async dispose() { disposed++ },
+    }),
+    subprocess: { noneProtocol: { async spawnWaitText(command) {
+      commands.push(Array.from(command))
+      return commands.length === 1 ? 'Failure [INSTALL_FAILED_INVALID_APK]' : 'Success\r\n'
+    } } },
+    rm: async remote => removed.push(remote),
+  })
+  const bad = path.join(root, 'bad.apk'), good = path.join(root, 'update & space.APK')
+  fs.writeFileSync(bad, 'bad'); fs.writeFileSync(good, Buffer.alloc(512 * 1024, 0xab))
+  const results = await Promise.allSettled([mirror.installApk(bad), mirror.installApk(good)])
+  assert.equal(results[0].status, 'rejected')
+  assert.match(results[0].reason.message, /INSTALL_FAILED_INVALID_APK/)
+  assert.equal(results[1].status, 'fulfilled')
+  assert.equal(pushed.length, 2)
+  assert.notEqual(pushed[0].filename, pushed[1].filename)
+  for (const [index, local] of [bad, good].entries()) {
+    assert.deepEqual(pushed[index].data, fs.readFileSync(local))
+    assert.deepEqual(commands[index], ['pm', 'install', '-r', pushed[index].filename])
+  }
+  assert.deepEqual(removed, pushed.map(push => push.filename))
+  assert.equal(disposed, 2)
+  for (const invalid of ['relative.apk', path.join(root, 'server'), path.join(root, 'missing.apk')]) {
+    await assert.rejects(mirror.installApk(invalid))
+  }
+  assert.equal(commands.length, 2)
+})
+
+test('Android workspace tools and mirroring share one USB claim until the last user releases it', async t => {
+  const f = androidFixture(directory(t))
+  const [target] = await f.discoverAndroid()
+  const [workspace, terminal] = await Promise.all([f.acquireAndroidAdb(target.key), f.acquireAndroidAdb(target.key)])
+  const mirror = new f.AndroidMirror(target)
+  await mirror.start(() => {}, () => {})
+  assert.equal(f.devices[0].connects, 1)
+  assert.equal(workspace.adb, terminal.adb)
+  await mirror.close()
+  await workspace.release()
+  await workspace.release()
+  assert.equal(f.devices[0].closes, 0)
+  assert.equal(await f.withAndroidAdb(target.key, async adb => adb === terminal.adb), true)
+  await terminal.release()
+  assert.equal(f.devices[0].closes, 1)
+  await assert.rejects(f.acquireAndroidAdb('android:missing'), /disconnected/)
+  assert.equal(f.devices[1].connects, 0)
 })

@@ -7,7 +7,6 @@ import type { MirrorSession } from 'common/types'
 import FloatingStyle from '../screencast/components/Toolbar.module.scss'
 import MirrorToolsPanel, { MirrorToolsSelect } from '../screencast/components/MirrorToolsPanel'
 import ToolbarToggle from '../screencast/components/ToolbarToggle'
-import Style from './App.module.scss'
 
 interface Props {
   mode: MirrorSession['videoMode']
@@ -43,8 +42,8 @@ export default observer(function Toolbar({ mode, busy, connected, onVideo, onHom
         event.preventDefault(); event.stopPropagation(); setExpanded(false); toggle.current?.focus()
       }
     }}>
-    {createPortal(<div className={`${FloatingStyle.entry} ${Style.toolEntry}`}>
-      <ToolbarToggle ref={toggle} expanded={expanded} visible
+    {createPortal(<div className={FloatingStyle.entry}>
+      <ToolbarToggle ref={toggle} expanded={expanded}
         controls="ios-mirror-tools" onClick={() => setExpanded(!expanded)} />
     </div>, document.body)}
     <MirrorToolsPanel id="ios-mirror-tools" expanded={expanded} footer={<>

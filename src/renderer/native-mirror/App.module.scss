@@ -17,10 +17,6 @@
   > span:first-child { width: 28px; height: 28px; border-radius: 8px; svg { width: 17px; height: 17px; } }
   button { flex-shrink: 0; }
 }
-.toolEntry.toolEntry {
-  left: 8px; right: auto; width: 32px;
-  :global(.platform-mac) & { left: auto; right: 8px; }
-}
 @media (max-width: 320px) {
   .inputNotice { flex-wrap: wrap; left: 10px; right: 10px; gap: 8px; button { margin-left: auto; } }
 }

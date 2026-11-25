@@ -121,3 +121,20 @@ test('command help exposes schema flags and file input/output options offline',a
  const capture=await run(['screen','capture','--help']);assert.match(capture.stdout,/--after-action/);assert.match(capture.stdout,/--output/);assert.match(capture.stdout,/--session/)
  const shell=await run(['shell','run','--help']);assert.match(shell.stdout,/--command-file/);assert.match(shell.stdout,/--max-bytes/)
 })
+
+test('device snapshot saves image blobs above the text limit without a session or frame ID', async t => {
+  const bytes = Buffer.alloc(1024 * 1024 + 20, 42)
+  const f = await service(t, async request => {
+    assert.equal(request.operation, 'screen.snapshot')
+    assert.deepEqual(request.params, { device: 'android:test' })
+    return { apiVersion: 1, requestId: request.requestId, ok: true,
+      data: { artifact: { artifactId: 'image', mimeType: 'image/png', byteLength: bytes.length }, bytes } }
+  })
+  const output = path.join(f.profilePath, 'device.png')
+  const args = ['screen', 'snapshot', '--device', 'android:test', '--profile', f.profilePath, '--json']
+  assert.equal((await run(args)).code, 2)
+  const result = await run([...args, '--output', output])
+  assert.equal(result.code, 0)
+  assert.equal(JSON.parse(result.stdout).data.frameId, undefined)
+  assert.deepEqual(await fs.readFile(output), bytes)
+})

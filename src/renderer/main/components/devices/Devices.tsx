@@ -4,6 +4,7 @@ import { t } from 'common/util'
 import type { ITarget, MirrorLayout, MirrorSession } from 'common/types'
 import store from '../../store'
 import Style from './Devices.module.scss'
+import DeviceIcon from './DeviceIcon'
 
 const receiverKey = 'ios:airplay-receiver'
 const retryable = (session: MirrorSession) => ['error', 'disconnected'].includes(session.state)
@@ -72,7 +73,7 @@ export default observer(function Devices() {
     try {
       const [next, nextLayout] = await Promise.all([main.getMirrorSessions(), main.getMirrorLayout()])
       if (alive.current && request === revision.current) {
-        setSessions(next); setLayout(nextLayout)
+        setSessions(next); setLayout(nextLayout === 'merged' ? 'merged' : 'independent')
         setError(previous => previous === 'plusSessionRefreshFailed' ? '' : previous)
       }
     } catch (error) {
@@ -141,7 +142,7 @@ export default observer(function Devices() {
         {available.map(device => <div key={device.key} className={`${Style.deviceRow} ${selection.includes(device.key) ? Style.selected : ''}`} data-device-row={device.key}>
           <input type="checkbox" checked={selection.includes(device.key)} disabled={!!busy || !ready(device)}
             aria-label={t('plusSelectDevice', { name: device.name })} onChange={() => toggle(device.key)} />
-          <span className={Style.deviceIcon} aria-hidden="true"><span className="icon-phone" /></span>
+          <DeviceIcon device={device} />
           <div className={Style.identity}><strong>{device.name}</strong><small>{platformName(device.platform)}{device.transport ? ` · ${device.transport === 'usb' ? 'USB' : t('plusWireless')}` : ''}</small>
             {failures.includes(device.key) && <small className={Style.error} role="alert">{t('plusDeviceStartFailed')}</small>}
           </div>
@@ -160,16 +161,16 @@ export default observer(function Devices() {
         <h2 id="mirror-sessions-heading">{t('plusSessions')}<span className={Style.count}>{deviceSessions.length}</span></h2>
         <div className={Style.layoutControls}><span>{t('plusLayoutScope', { count: sessions.length })}</span>
           <div className={Style.segmented} role="group" aria-label={t('plusLayoutMode')}>
-            {(['independent', 'side-by-side', 'merged'] as const).map(value => <button type="button" key={value} data-layout={value}
+            {(['independent', 'merged'] as const).map(value => <button type="button" key={value} data-layout={value}
               aria-pressed={layout === value} disabled={!!busy || !sessions.length} onClick={() => void applyLayout(value)}>
-              {t(value === 'independent' ? 'plusLayoutIndependent' : value === 'side-by-side' ? 'plusLayoutSideBySide' : 'plusLayoutMerged')}
+              {t(value === 'independent' ? 'plusLayoutIndependent' : 'plusLayoutMerged')}
             </button>)}
           </div>
         </div>
       </div>
       {!deviceSessions.length && <p className={Style.empty}>{t('plusNoSessions')}</p>}
       {deviceSessions.map(session => <div className={Style.sessionRow} key={session.id} data-session-row={session.deviceKey}>
-        <span className={Style.deviceIcon} aria-hidden="true"><span className="icon-phone" /></span>
+        <DeviceIcon device={session} />
         <div className={Style.identity}><strong>{session.name}</strong><small>{platformName(session.platform)}</small>
           {failures.includes(session.deviceKey) && <small className={Style.error} role="alert">{t('plusDeviceStartFailed')}</small>}
         </div>

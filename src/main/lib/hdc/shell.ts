@@ -29,8 +29,9 @@ class HdcPty extends Emitter {
       }
     })
   }
-  async write(data: string) {
-    await this.connection.send(Buffer.from(data))
+  async write(data: string | Uint8Array) {
+    const buffer = typeof data === 'string' ? Buffer.from(data) : Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+    await this.connection.send(buffer)
   }
   kill() {
     this.connection.end()

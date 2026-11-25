@@ -135,7 +135,7 @@ test('Harmony tools and mirroring keep independent selections and persist to sep
   const f = await fixture({initialize:false})
   const devices=[{key:'a',platform:'android'}, {key:'h',platform:'harmony'}, {key:'h2',platform:'harmony'}, {key:'i',platform:'ios'}]
   f.requests[0].resolve(devices); await tick()
-  assert.equal(f.store.target.key,'h'); assert.equal(f.store.mirrorTarget.key,'a')
+  assert.equal(f.store.harmonyTarget.key,'h'); assert.equal(f.store.target.key,'a'); assert.equal(f.store.mirrorTarget.key,'a')
   f.store.selectOverviewTarget('h'); f.store.selectPanel('shell'); f.store.selectMirrorTarget('i')
   assert.equal(f.store.target.key,'h'); assert.equal(f.store.panel,'shell')
   f.store.selectTarget('h2'); assert.equal(f.store.mirrorTarget.key,'i')
@@ -149,7 +149,7 @@ test('disconnecting the Harmony device never assigns an Android device to its to
   const f = await fixture({initialize:false})
   f.requests[0].resolve([{key:'a',platform:'android'},{key:'h',platform:'harmony'}]); await tick()
   const refresh=f.event();f.requests[1].resolve([{key:'a',platform:'android'}]);await refresh
-  assert.equal(f.store.target,null);assert.equal(f.store.mirrorTarget.key,'a')
+  assert.equal(f.store.harmonyTarget,null);assert.equal(f.store.target.key,'a');assert.equal(f.store.mirrorTarget.key,'a')
   const next=f.event();f.requests[2].resolve([{key:'h',platform:'harmony'}]);await next
   assert.equal(f.store.target.key,'h');assert.equal(f.store.mirrorTarget.key,'h')
 })
@@ -166,17 +166,17 @@ test('saved independent choices are restored even when device discovery order ch
   assert.equal(f.store.target.key,'h2');assert.equal(f.store.mirrorTarget.key,'i')
 })
 
-test('overview selects both platforms, keeps Harmony tool target and prevents stale tool navigation', async () => {
+test('overview selects both platforms, routes tools to the selected device and preserves the Harmony setting', async () => {
   const f = await fixture({ initialize: false, saved: { panel: 'shell', overviewTarget: { key: 'a', platform: 'android' } } })
   const devices = [{key:'h',platform:'harmony'}, {key:'a',platform:'android'}, {key:'i',platform:'ios'}]
   f.requests[0].resolve(devices); await tick()
   assert.equal(f.store.overviewTarget.key, 'a')
-  assert.equal(f.store.panel, 'overview')
-  f.store.selectPanel('application'); assert.equal(f.store.panel, 'overview')
+  assert.equal(f.store.panel, 'shell')
+  f.store.selectPanel('application'); assert.equal(f.store.panel, 'application'); assert.equal(f.store.target.key,'a')
   f.store.selectOverviewTarget('h'); f.store.selectPanel('shell')
   assert.equal(f.store.panel, 'shell'); assert.equal(f.store.target.key, 'h')
-  f.store.selectOverviewTarget('a'); assert.equal(f.store.panel, 'overview')
-  assert.equal(f.store.target.key, 'h')
+  f.store.selectOverviewTarget('a'); assert.equal(f.store.panel, 'shell')
+  assert.equal(f.store.harmonyTarget.key, 'h')
   f.store.selectOverviewTarget('i'); assert.equal(f.store.overviewTarget.key, 'a')
   const request = f.store.refreshTargets(); f.requests[1].resolve(devices); await request
   assert.equal(f.store.overviewTarget.key, 'a')
@@ -187,7 +187,7 @@ test('USB iPhone overview selection survives restore and polling without changin
   const f=await fixture({initialize:false,saved:{panel:'shell',overviewTarget:iphone,target:{key:'h',platform:'harmony'}}})
   const devices=[{key:'h',platform:'harmony'},iphone,{key:'ios:airplay-receiver',platform:'ios',transport:'receiver'}]
   f.requests[0].resolve(devices);await tick()
-  assert.equal(f.store.overviewTarget.key,iphone.key);assert.equal(f.store.panel,'overview');assert.equal(f.store.target.key,'h')
+  assert.equal(f.store.overviewTarget.key,iphone.key);assert.equal(f.store.panel,'overview');assert.equal(f.store.target,null);assert.equal(f.store.harmonyTarget.key,'h')
   f.store.selectPanel('application');assert.equal(f.store.panel,'overview')
   f.store.selectOverviewTarget('ios:airplay-receiver');assert.equal(f.store.overviewTarget.key,iphone.key)
   const request=f.store.refreshTargets();f.requests[1].resolve(devices.map(d=>({...d})));await request

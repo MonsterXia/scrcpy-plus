@@ -8,10 +8,12 @@ export type BundleAction =
 export default observer(function ApplicationActions({
   busy,
   canOpen,
+  canCleanCache,
   onAction,
 }: {
   busy: boolean
   canOpen: boolean
+  canCleanCache: boolean
   onAction: (action: BundleAction) => void
 }) {
   return (
@@ -29,13 +31,15 @@ export default observer(function ApplicationActions({
         {t('stop')}
       </button>
       <div className={Style.maintenance}>{t('applicationMaintenance')}</div>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => onAction('cleanCache')}
-      >
-        {t('cleanCache')}
-      </button>
+      {canCleanCache && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onAction('cleanCache')}
+        >
+          {t('cleanCache')}
+        </button>
+      )}
       <button
         type="button"
         disabled={busy}

@@ -18,12 +18,13 @@ test('attaching and detaching a live tile updates its accessible header', () => 
   const heading = document.querySelector('h1')
   const root = document.documentElement
   assert.equal(heading.hidden, true)
-  for (const [platform, inset] of [['iOS', 28], ['HarmonyOS', 0]]) {
-    events.get('mergedMirrorLabel')(platform, inset)
+  for (const [name, detail, inset] of [['nova 15', 'PSN-AL00 · HarmonyOS', 28], ['手机 · 工作', 'iOS', 0], ['Android', '', 0]]) {
+    events.get('mergedMirrorLabel')({ name, detail }, inset, 44)
     assert.equal(heading.hidden, false)
-    assert.equal(heading.textContent, platform)
+    assert.deepEqual(Array.from(heading.children, node => node.textContent), [name, detail].filter(Boolean))
+    assert.equal(heading.title, [name, detail].filter(Boolean).join(' · '))
     assert.equal(root.style.getPropertyValue('--mirror-tool-inset'), inset + 'px')
-    events.get('mergedMirrorLabel')('')
+    events.get('mergedMirrorLabel')(null)
     assert.equal(heading.hidden, true)
     assert.equal(root.hasAttribute('data-mirror-label'), false)
     assert.equal(root.style.getPropertyValue('--mirror-tool-inset'), '')
