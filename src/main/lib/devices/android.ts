@@ -16,7 +16,7 @@ import { getUserDataPath, resolveResources } from 'share/main/lib/util'
 import type { NativeFrame } from './media'
 import { readAndroidOverview } from './androidOverview'
 import { closeAndroidChannel, readAndroidShellOutput, waitForAndroidOperation } from './androidShell'
-import { connectLocalAdb } from './androidServer'
+import { connectLocalAdb, discoverLocalAdb } from './androidServer'
 
 export class FileAdbCredentials implements AdbCredentialStore {
   constructor(private file: string) {}
@@ -131,11 +131,25 @@ async function usbDevices() {
   return deadline(enumeration, () => {}, 5000)
 }
 export async function discoverAndroid(): Promise<ITarget[]> {
-  return (await usbDevices()).map(device => ({
-    key: `android:${usbIdentity(device)}`, connectionId: usbIdentity(device), name: device.name || device.serial,
-    brand: device.raw.manufacturerName || undefined,
-    platform: 'android', transport: 'usb', state: 'ready', ohosVersion: '', sdkVersion: '',
+  const [usb, local] = await Promise.allSettled([usbDevices(), discoverLocalAdb()])
+  const shared = local.status === 'fulfilled' ? local.value : []
+  if (usb.status === 'rejected' && !shared.length) throw usb.reason
+  const targets: ITarget[] = shared.map(device => ({
+    key: `android:${device.serial}`, connectionId: device.serial,
+    name: device.model || device.serial, model: device.model,
+    platform: 'android', transport: 'usb',
+    state: device.state === 'device' ? 'ready' : device.state as 'unauthorized' | 'offline',
+    ohosVersion: '', sdkVersion: '',
   }))
+  for (const device of usb.status === 'fulfilled' ? usb.value : []) {
+    if (shared.some(item => item.serial === device.serial)) continue
+    targets.push({
+      key: `android:${usbIdentity(device)}`, connectionId: usbIdentity(device), name: device.name || device.serial,
+      brand: device.raw.manufacturerName || undefined,
+      platform: 'android', transport: 'usb', state: 'ready', ohosVersion: '', sdkVersion: '',
+    })
+  }
+  return targets
 }
 
 async function deadline<T>(promise: Promise<T>, cancel: () => void, milliseconds = 30000): Promise<T> {
@@ -243,31 +257,29 @@ class AndroidConnection {
     if (this.adb) return Promise.resolve(this.adb)
     if (!this.connecting) this.connecting = (async () => {
       this.check()
+      // Use a stable serial identity regardless of who owns the USB transport.
+      // Probe the existing server before opening or claiming any native handle.
+      const serial = this.key.slice(8)
+      if (/^[a-zA-Z0-9_.-]{1,128}$/.test(serial)) {
+        try { this.adb = await connectLocalAdb(serial) }
+        catch { this.check() }
+        if (this.adb) {
+          if (this.closed) { await this.adb.close(); this.check() }
+          return this.adb
+        }
+      }
       const devices = await usbDevices()
       this.check()
       this.device = devices.find(device => usbIdentity(device) === this.key.slice(8))
       if (!this.device) throw new Error('Android device disconnected')
       configureAndroidUsb(this.device.raw)
       this.check()
-      let connection: Awaited<ReturnType<AdbDaemonWebUsbDevice['connect']>>
-      try {
-        const opening = this.device.connect().then(async connection => {
-          if (this.closed) { await this.device?.raw.close(); this.check() }
-          return connection
-        })
-        this.handshake = opening
-        connection = await deadline(opening, () => {})
-      } catch (error) {
-        // ADB/Android Studio can own this USB interface. Share that local server
-        // only before authentication/writes, and only for the observed USB serial.
-        const serial = this.device.raw.serialNumber
-        if (!(error instanceof Error) || !/LIBUSB_ERROR_(ACCESS|BUSY)/.test(error.message) || !serial || serial !== this.device.serial) throw error
-        await this.device.raw.close(); this.check()
-        try { this.adb = await connectLocalAdb(serial) }
-        catch { throw error }
-        if (this.closed) { await this.adb.close(); this.check() }
-        return this.adb
-      }
+      const opening = this.device.connect().then(async connection => {
+        if (this.closed) { await this.device?.raw.close(); this.check() }
+        return connection
+      })
+      this.handshake = opening
+      const connection = await deadline(opening, () => {})
       this.check()
       const authenticating = AdbDaemonTransport.authenticate({
         serial: this.device.serial, connection,

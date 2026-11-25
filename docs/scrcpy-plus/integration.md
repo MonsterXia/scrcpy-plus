@@ -18,12 +18,14 @@ dev.1 合入商店空响应按应用缓存（避免后续图标被全局冷却�
 
 | 平台 | 应用内实现 | 设备发现 | 投屏及操作 |
 | --- | --- | --- | --- |
-| Android | 本地 Tango TypeScript ADB/scrcpy 协议源码 + USB 库 + 从源码编译的 scrcpy 3.3.3 手机端服务 | 直接枚举 USB ADB 接口 | 应用内 H.264 投屏、输入控制、APK 拖入安装及七项设备工具 |
+| Android | 本地 Tango TypeScript ADB/scrcpy 协议源码 + USB 库 + 从源码编译的 scrcpy 3.3.3 手机端服务 | 直接枚举 USB ADB 接口，并合并本机已有 ADB 服务中的设备 | 应用内 H.264 投屏、输入控制、APK 拖入安装及七项设备工具 |
 | Harmony | 保留原 HDC/uitestkit 与原生视频/JPEG 实现 | 原 HDC 监听 | 保留原投屏和输入能力；窗口绑定独立设备 |
 | iOS USB | 直接 usbmux + 固定源码 WDA/ReplayKit Runner | UDID 绑定的 USB 发现与连接 | 默认 H.264 连续视频、PNG 回退、点击/手势/文字；基本真机链路已验证，完整矩阵见 iOS USB 维护记录 |
 | iOS AirPlay | UxPlay/libplist/PlayFair/llhttp/mDNS 源码 Node-API 模块 | 手机发起 AirPlay 连接 | H.264 画面，不支持控制 |
 
 Android/iOS 的运行代码不启动 adb、scrcpy、UxPlay、idevice_id 或 ideviceinfo 可执行文件，也不查找它们的路径。原“工具路径”设置已移除。安卓通过 USB 协议在手机端启动自带采集服务，不启动电脑端 scrcpy 程序。
+
+Android 发现也会查询 `127.0.0.1:5037` 上已经运行的 ADB 服务，补齐 Windows 下 ADB／Android Studio 可见而直接 USB 枚举不可见的设备。相同序列号只显示一次，两种来源使用相同的 `android:<serial>` 标识，连接优先按 transport ID 复用已有 ADB；服务不可用则匹配同一序列号使用应用自身的 USB 协议实现，保留未授权与离线状态。查询有三秒期限，不启动或停止 ADB 服务，不执行 adb 命令，也不接管其他客户端的 USB 句柄。目前此入口仅接受常规序列号，不覆盖带冒号的 TCP 地址或自定义 ADB 服务端口。Windows 真机验收仍待完成。
 
 USB 库是应用的生产依赖，当前固定 `usb@2.19.1` 的 libusb 后端。安卓读写端点设置一秒超时，读取空闲超时继续等待；清理按成功 claim 的接口记录释放，断连后不再读取配置描述符，并始终尝试关闭原生句柄。已有失败／断连窗口再次启动时会重试后端。2026-11-05 已验证三星实际拔插后无需重启应用即可恢复，鸿蒙继续运行且双端合并出图；见 [恢复证据](evidence/samsung-usb-reconnect-2026-11-05/verification.json)。
 
@@ -74,7 +76,7 @@ npm start
 
 「合并」把每个独立窗口正在使用的 Electron `WebContentsView` 移入同一个窗口。Android、HarmonyOS、iOS 按此顺序共用画面高度，同系统多台设备各占一栏。视图贴齐内容区左、右和下边缘，相邻设备之间留 12 个逻辑像素。设备首帧、方向或数量变化时按实际比例调整窗口。每栏保留原解码器、输入焦点和平台工具栏，支持该连接在独立窗口中已有的点按、拖动、滚轮和键盘操作；AirPlay 仍仅支持查看。独立窗口标题显示设备名称、可用型号和系统。合并分栏首行显示设备名，次行显示型号和系统，相同字段只显示一次。重名窗口按打开顺序加上 #2、#3 等编号，切换布局时保留。合并栏头高 44 个逻辑像素，窄栏可悬停查看完整标题。Android、鸿蒙和 USB iPhone 共用常驻的双滑杆按钮。Android 面板提供返回、主界面和音量加减，按键通过所属窗口的 scrcpy 控制通道发送。合并时按钮位于各栏右侧，独立时在 macOS 右上角、Windows 左上角，点按在按钮下方同侧展开面板，再点收起。Android 画布获得焦点时，Tab 发送给手机，Shift+Tab 将焦点移到本栏的投屏工具按钮。鸿蒙可以选择画质，USB iPhone 可以从「模式」下拉框切换 ReplayKit 视频和 WDA 截图，圆圈和齿轮分别用于返回主屏幕和打开 iPhone 设置。切回独立窗口或关闭合并窗口时，原视图回到对应窗口，会话继续运行。实现见 `src/main/window/mergedMirrors.ts` 和 `src/share/main/lib/window.ts`。见[三机真机验证](../maintenance/evidence/merged-live-controls-20261119.json)。
 
-安卓设备开启 USB 调试，插入后自动列出；选择设备并打开投屏窗口，在手机上确认首次 RSA 授权。主机私钥以受限权限持久化于应用配置目录，写完临时文件后原子发布，避免两台手机首次同时授权时读取到半写入密钥。直接 USB 接口不可被多进程同时占用。若在认证前遇到 ACCESS/BUSY，且 USB 序列号明确，应用释放自己的 USB 句柄并尝试复用本机 127.0.0.1:5037 已运行的 ADB 服务；严格匹配唯一在线序列号并固定 transport ID，仅关闭自己的连接，不启动/停止服务或 detach 设备。无匹配服务、未授权、序列号缺失或非接口占用错误不会选择其他设备或重放操作。回退仍失败时通过固定 connectionIssue 显示 USB 提示。2026-11-16用户报告的接口占用和授权恢复见[专项记录](../maintenance/agent-automation-android-codex-2026-11-16.md)。
+安卓设备开启 USB 调试，插入后自动列出；选择设备并打开投屏窗口，在手机上确认首次 RSA 授权。主机私钥以受限权限持久化于应用配置目录，写完临时文件后原子发布，避免两台手机首次同时授权时读取到半写入密钥。直接 USB 接口不可被多进程同时占用。连接时优先尝试本机 `127.0.0.1:5037` 已运行的 ADB 服务，严格匹配唯一在线序列号并固定 transport ID。没有可用服务或服务在设备发现后退出时，重新枚举并匹配同一设备的 USB 接口，由应用内 Tango 协议完成授权和连接。带物理端口标识的无序列号 USB 设备直接走本地实现。共享服务只关闭自己的 socket，不启动／停止服务，不 detach 设备；USB 认证或操作开始后不会重放到另一通道。直接 USB 的 ACCESS/BUSY 仍通过固定 connectionIssue 显示 USB 提示。2026-11-16用户报告的接口占用和授权恢复见[专项记录](../maintenance/agent-automation-android-codex-2026-11-16.md)。
 
 有序列号的设备按序列号区分；无序列号的 USB 设备使用总线/物理端口作为连接标识，不凭型号合并。当前安卓源码后端只接 USB，尚未实现无线调试配对/TLS 或远程 ADB 服务。
 

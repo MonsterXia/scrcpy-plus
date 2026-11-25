@@ -7,7 +7,7 @@ const path = require('node:path')
 const { buildSync } = require('esbuild')
 const temp = fs.mkdtempSync(path.join(os.tmpdir(),'plus-local-adb-test-'))
 buildSync({entryPoints:['src/main/lib/devices/androidServer.ts'],bundle:true,platform:'node',format:'cjs',outfile:path.join(temp,'server.cjs')})
-const {connectLocalAdb,LocalAdbConnector}=require(path.join(temp,'server.cjs'))
+const {connectLocalAdb,discoverLocalAdb,LocalAdbConnector}=require(path.join(temp,'server.cjs'))
 process.on('exit',()=>fs.rmSync(temp,{recursive:true,force:true}))
 async function server(t,devices='phone device model:Phone transport_id:7\nother device transport_id:9\n') {
  const calls=[], sockets=new Set()
@@ -19,7 +19,7 @@ async function server(t,devices='phone device model:Phone transport_id:7\nother 
    buffered=Buffer.concat([buffered,chunk])
    while(buffered.length>=4){const size=parseInt(buffered.subarray(0,4).toString(),16);if(buffered.length<size+4)return
     const command=buffered.subarray(4,size+4).toString();buffered=buffered.subarray(size+4);calls.push(command)
-    if(command==='host:devices-l')socket.write('OKAY'+string(devices))
+    if(command==='host:devices-l'){if(devices!==null)socket.write('OKAY'+string(devices))}
     else if(command==='host:transport-id:7')socket.write('OKAY')
     else if(command==='host:features')socket.write('OKAY'+string(''))
     else if(command==='host:version')socket.write('OKAY'+string('0029'))
@@ -50,4 +50,19 @@ for(const devices of ['other device transport_id:9\n','phone unauthorized transp
 })
 test('local ADB rejects serial command injection before connecting',async t=>{
  const f=await server(t);await assert.rejects(connectLocalAdb('phone:kill',f.connector),/Invalid/);assert.deepEqual(f.calls,[])
+})
+
+test('local server discovery preserves authorization states and closes read-only sockets', async t => {
+ const f=await server(t,'phone device model:Phone transport_id:7\nlocked unauthorized transport_id:8\ngone offline transport_id:9\n192.168.1.2:5555 device transport_id:10\nadb-phone._adb-tls-connect._tcp device transport_id:11\nemulator-5554 device transport_id:12\n')
+ const devices=await discoverLocalAdb(f.connector)
+ assert.deepEqual(devices.map(d=>[d.serial,d.state]),[['phone','device'],['locked','unauthorized'],['gone','offline']])
+ assert.deepEqual(f.calls,['host:devices-l'])
+ await assert.rejects(f.connector.connect(),/closed/)
+})
+
+test('local discovery stops a server that accepts sockets without replying', async t => {
+ const f=await server(t,null)
+ await assert.rejects(discoverLocalAdb(f.connector))
+ await assert.rejects(f.connector.connect(),/closed/)
+ assert.deepEqual(f.calls,['host:devices-l'])
 })

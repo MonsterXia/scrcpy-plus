@@ -46,6 +46,16 @@ export class LocalAdbConnector implements AdbServerClient.ServerConnector {
   close() { this.stopped = true; for (const socket of this.sockets) socket.destroy() }
 }
 
+// Discovery is read-only and bounded, including when a server accepts sockets
+// but never replies. A missing server is optional; direct USB remains usable.
+export async function discoverLocalAdb(connector = new LocalAdbConnector()) {
+  const timer = setTimeout(() => connector.close(), 3000)
+  try {
+    return (await new AdbServerClient(connector).getDevices(['device', 'unauthorized', 'offline']))
+      .filter(device => /^[a-zA-Z0-9_.-]{1,128}$/.test(device.serial) && !device.serial.includes('._tcp') && !/^emulator-\d+$/.test(device.serial))
+  } finally { clearTimeout(timer); connector.close() }
+}
+
 export async function connectLocalAdb(serial: string, connector = new LocalAdbConnector()) {
   if (!/^[a-zA-Z0-9_.-]{1,128}$/.test(serial)) { connector.close(); throw new Error('Invalid local ADB USB serial') }
   const client = new AdbServerClient(connector)
