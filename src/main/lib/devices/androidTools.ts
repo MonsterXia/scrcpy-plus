@@ -11,13 +11,16 @@ import {
 import { androidDumpLayout, androidScreencap, androidGetTopBundle } from './androidInspection'
 import { androidGetWebviews, androidInspectWebview } from './androidWebviews'
 import {
-  androidCreateShell, androidWriteShell, androidKillShell, androidOpenHilog, androidCloseHilog,
+  androidCreateShell, androidWriteShell, androidResizeShell, androidKillShell, androidOpenHilog, androidCloseHilog,
   androidPauseHilog, androidResumeHilog, closeAndroidStreams,
 } from './androidStreams'
 
+let workspaceOpening: AbortController | undefined
 let workspaceLease: ReturnType<typeof acquireAndroidAdb> | undefined
 
 async function releaseWorkspace() {
+  workspaceOpening?.abort()
+  workspaceOpening = undefined
   const lease = workspaceLease
   workspaceLease = undefined
   await (await lease?.catch(() => undefined))?.release()
@@ -26,7 +29,8 @@ async function releaseWorkspace() {
 async function selectTools(key: string | null) {
   const released = releaseWorkspace()
   if (key === null) return released
-  const opening = acquireAndroidAdb(key)
+  workspaceOpening = new AbortController()
+  const opening = acquireAndroidAdb(key, workspaceOpening.signal)
   workspaceLease = opening
   await Promise.all([released, opening])
 }
@@ -49,7 +53,7 @@ export function initAndroidTools(contents: WebContents) {
     uninstallBundle: androidUninstallBundle, getProcesses: androidGetProcesses,
     screencap: androidScreencap, dumpWindowHierarchy: (key: string) => androidDumpLayout(key), getTopBundle: androidGetTopBundle,
     getWebviews: androidGetWebviews, inspectWebview: androidInspectWebview,
-    createShell: androidCreateShell, writeShell: androidWriteShell, killShell: androidKillShell,
+    createShell: androidCreateShell, writeShell: androidWriteShell, resizeShell: androidResizeShell, killShell: androidKillShell,
     openHilog: androidOpenHilog, closeHilog: androidCloseHilog, pauseHilog: androidPauseHilog, resumeHilog: androidResumeHilog,
   }
   for (const [name, handler] of Object.entries(handlers)) {

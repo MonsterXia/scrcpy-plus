@@ -116,8 +116,19 @@ test('debug-enabled foreground WebView pages use a selected-page loopback relay 
   }
   let listening = false
   const mocks = fixture(command => {
-    if (command.startsWith('dumpsys activity')) return 'topResumedActivity=ActivityRecord{abcd u0 test.app/.Main t1}'
-    if (command === 'ps -A -o UID,PID,NAME') return 'UID PID NAME\n10000 20 test.app:web\n10000 10 test.app\n10001 99 test.app.lookalike\n1010000 100 test.app'
+    if (command.startsWith('dumpsys activity activities')) return 'topResumedActivity=ActivityRecord{abcd u0 test.app/.Main t1}'
+    if (command.startsWith('dumpsys activity processes test.app |')) {
+      // ActivityManager's package filter excludes PID 99 (a separate app with
+      // a similar process name), but can include the same app in another user.
+      return [
+        '    *APP* UID 10000 ProcessRecord{135 9:test.app/u0a0}',
+        '        - ActivityRecord{abcd u0 test.app/.Main t1} flags=host',
+        '    *APP* UID 10000 ProcessRecord{baa 20:custom.web.worker/u0a0}',
+        '    *PERS* UID 10000 ProcessRecord{ffd 10:custom.main/u0a0}',
+        '        - ActivityRecord{abcd u0 test.app/.Main t1}',
+        '    *APP* UID 1010000 ProcessRecord{dbc 100:test.app/u10a0}',
+      ].join('\n')
+    }
     assert.equal(command, 'cat /proc/net/unix')
     return [
       'Num RefCount Protocol Flags Type St Inode Path',

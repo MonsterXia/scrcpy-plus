@@ -237,6 +237,8 @@ Android 投屏画面拖入 APK 时通过 `nativeMirrorInstallApk` IPC 安装。�
 
 主窗口按 `overviewTarget` 路由安卓七项工具。Preload 按设备 key 或流 ID 的 `android:` 前缀选用对应 IPC，`devices/androidTools.ts` 校验主窗口文档，注册应用/进程、截图/布局、终端/日志及 WebView 处理器。`devices/android.ts` 按 USB 设备共享连接，工作区、投屏和各操作独立持有并释放。应用元数据由内置 scrcpy JAR 中的 `WorkspaceApps` 分批读取；更新 Java 源码后运行 `npm run build:backends -- --android`。若设备限制该入口，应用面板回退为 shell 元数据与默认图标。布局导出保留 UI Automator XML；前台应用的可调试 WebView 通过窗口专用的本地回环 WebSocket 中继接入 DevTools。
 
+Android Shell 绑定会话后通过 `android:resizeShell` 同步 xterm 的行列数，窗口变化时继续更新 shell-v2 PTY。旧协议 PTY 继续支持读写。主窗口重载、崩溃或退出时，`androidStreams.ts` 取消仍在认证或打开的 Shell 和 Logcat，清理迟到的子进程，并释放各会话持有的 ADB 连接份额。
+
 原生投屏失败的 `MirrorSession/NativeMirrorInfo.connectionIssue` 为固定分类，不承载原始异常：Android ACCESS/BUSY通过nativeMirrorState/info IPC给renderer双语提示；重试/恢复清除。直接 USB 仍由后端独占，不自动 detach 其他 ADB；认证前 ACCESS/BUSY 可经 `devices/androidServer.ts` 复用已运行的本机 ADB，按 USB 序列号匹配并固定 transport ID，关闭只回收自己的 socket。共享window.ts的延迟位置保存及ready兜底必须先核对窗口存活。真实Codex宿主探针为 `script/check-automation-codex.mjs`，其结果与SDK模拟测试分开。
 
 合并投屏由 `main/window/mergedMirrors.ts` 把各独立窗口原有的 `mirrorView` 移入同一个 BrowserWindow，并按设备比例与 44 个逻辑像素的可见标题高度设置 bounds。macOS 将各视图顶边向上移 28 个逻辑像素，文档内部等量下移标题和按钮，AppKit 的标题栏命中区域落在可见内容外；HTML 全屏时视图填满宿主。独立与合并始终使用同一个 WebContents 绑定会话、解码、工具栏和输入队列。新建镜像时由 `main/window/mirrorTitle.ts` 根据设备名、型号和系统分配唯一标题，独立窗口使用 `MirrorTarget.mirrorTitle`，合并分栏使用 `MirrorSource.heading` 的设备名和型号／系统两行，主进程将标题高度一并发给视图。拆分时将视图挂回各自窗口并恢复标题与尺寸，批量显示后仅激活一个窗口。独立窗口的焦点通知只同步界面状态，避免再次激活镜像文档而争抢焦点。原生菜单回调发回打开菜单的文档，菜单坐标包含设备视图在宿主窗口内的偏移。

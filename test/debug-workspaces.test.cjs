@@ -348,6 +348,8 @@ function terminalBoundary() {
     constructor() {
       this.options = {}
       this.unicode = {}
+      this.rows = 32
+      this.cols = 110
       this.disposed = false
       this.input = null
       instances.push(this)
@@ -367,6 +369,10 @@ function terminalBoundary() {
     clear() {}
     dispose() {
       this.disposed = true
+    }
+    onResize(fn) {
+      this.resized = fn
+      return { dispose: () => { this.resized = null } }
     }
     onBinary(fn) {
       this.binary = fn
@@ -723,6 +729,7 @@ test('hilog export retains the same bounded entries as real Luna, paused events 
 
 test('Android shell binds before draining the first output, forwards binary input and shows only Android shortcuts', async (t) => {
   const b = terminalBoundary(), listeners = new Map(), writes = []
+  const sizes = []
   const id = 'android:shell:session'
   const f = await fixture(t, 'shell/Shell', {
     ...b,
@@ -730,6 +737,7 @@ test('Android shell binds before draining the first output, forwards binary inpu
     main: {
       on(event, fn) { listeners.set(event, fn); return () => listeners.delete(event) },
       createShell: async () => id,
+      resizeAndroidShell: async (...args) => { sizes.push(args) },
       writeShell: async (session, data) => {
         assert.equal(session, id)
         writes.push(data)
@@ -739,6 +747,9 @@ test('Android shell binds before draining the first output, forwards binary inpu
     },
   })
   assert.equal(b.instances[0].lastWrite, 'initial prompt $ ')
+  assert.deepEqual(sizes, [[id, 32, 110]])
+  await act(async () => b.instances[0].resized({ rows: 40, cols: 140 }))
+  assert.deepEqual(sizes.at(-1), [id, 40, 140])
   await act(async () => b.instances[0].binary('\u0000\u00fe'))
   assert.deepEqual(Array.from(writes[1]), [0, 254])
   await act(async () => button(f.host, 'shortcut').click())
@@ -751,6 +762,7 @@ test('Android shell binds before draining the first output, forwards binary inpu
   assert.match(f.host.textContent, /androidShellEnded/)
   await act(async () => f.root.unmount())
   assert.equal(b.instances[0].binary, null)
+  assert.equal(b.instances[0].resized, null)
 })
 
 test('Android logcat exposes PID filtering, exports the unmodified tag and handles EOF', async (t) => {

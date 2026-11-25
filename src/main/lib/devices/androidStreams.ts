@@ -5,10 +5,12 @@ import log from 'share/common/log'
 import { sendTo } from 'share/main/lib/window'
 import { acquireAndroidAdb } from './android'
 
+type ShellProcess = Awaited<ReturnType<Adb['subprocess']['noneProtocol']['pty']>>
 type StreamProcess = Pick<AdbNoneProtocolProcess, 'kill' | 'output'> & {
   exited: Promise<unknown>
+  input?: ShellProcess['input']
+  resize?(rows: number, cols: number): Promise<void>
 }
-type ShellProcess = Awaited<ReturnType<Adb['subprocess']['noneProtocol']['pty']>>
 
 // logcat -B writes logger_entry frames. Using the header length also handles
 // older devices, whose 20-byte headers store zero in the hdr_size field.
@@ -60,7 +62,7 @@ class LogcatDecoder {
 
 const logger = log('android-streams')
 const sessions = new Map<string, AndroidStream>()
-let rendererGeneration = 0
+const pending = new Map<AbortController, Promise<string>>()
 
 class AndroidStream {
   readonly id: string
@@ -74,11 +76,10 @@ class AndroidStream {
     private kind: 'shell' | 'logcat',
     private process: StreamProcess,
     private release: () => Promise<void>,
-    shellInput?: ShellProcess['input'],
   ) {
     this.id = 'android:' + kind + ':' + randomUUID()
     this.reader = process.output.getReader()
-    this.writer = shellInput?.getWriter()
+    this.writer = process.input?.getWriter()
     // The PTY exit promise can reject on disconnect. Its output exposes the
     // same failure after any remaining data has been consumed.
     void process.exited.catch(() => {})
@@ -126,6 +127,12 @@ class AndroidStream {
     }
   }
 
+  async resize(rows: number, cols: number) {
+    if (this.kind !== 'shell') throw new Error('Android shell unavailable')
+    // Legacy ADB PTYs have no window-size command.
+    await this.process.resize?.(rows, cols)
+  }
+
   close() {
     if (this.closing) return this.closing
     sessions.delete(this.id)
@@ -145,32 +152,44 @@ class AndroidStream {
   }
 }
 
-async function open(key: string, kind: 'shell' | 'logcat') {
-  const generation = rendererGeneration
-  const { adb, release } = await acquireAndroidAdb(key)
-  let session: AndroidStream | undefined
+async function openStream(key: string, kind: 'shell' | 'logcat', signal: AbortSignal) {
+  const { adb, release } = await acquireAndroidAdb(key, signal)
+  let cancel: (() => void) | undefined
   try {
-    if (generation !== rendererGeneration) throw new Error('Renderer closed')
-    if (kind === 'shell') {
-      const service = adb.subprocess.shellProtocol
-      const pty = service
-        ? await service.pty({ terminalType: 'xterm-256color' })
-        : await adb.subprocess.noneProtocol.pty()
-      session = new AndroidStream(kind, pty, release, pty.input)
-    } else {
-      const logcat = await adb.subprocess.noneProtocol.spawn([
-        'logcat', '-B', '-T', '1', '-b', 'main', '-b', 'system', '-b', 'crash',
-      ])
-      session = new AndroidStream(kind, logcat, release)
-    }
-    if (generation !== rendererGeneration) throw new Error('Renderer closed')
-    sessions.set(session.id, session)
-    return session.id
+    signal.throwIfAborted()
+    const interrupted = new Promise<never>((_, reject) => {
+      cancel = () => reject(signal.reason)
+      signal.addEventListener('abort', cancel, { once: true })
+    })
+    const subprocess = adb.subprocess
+    const opening = kind === 'logcat'
+      ? subprocess.noneProtocol.spawn(['logcat', '-B', '-T', '1', '-b', 'main', '-b', 'system', '-b', 'crash'])
+      : subprocess.shellProtocol?.pty({ terminalType: 'xterm-256color' }) ?? subprocess.noneProtocol.pty()
+    return await Promise.race([interrupted, opening.then(async child => {
+      // A pending PTY socket open can finish after its renderer has gone.
+      if (signal.aborted) {
+        void child.exited.catch(() => {})
+        await child.kill()
+        throw signal.reason
+      }
+      signal.removeEventListener('abort', cancel!)
+      const session = new AndroidStream(kind, child, release)
+      sessions.set(session.id, session)
+      return session.id
+    })])
   } catch (error) {
-    if (session) await session.close()
-    else await release()
+    await release()
     throw error
+  } finally {
+    if (cancel) signal.removeEventListener('abort', cancel)
   }
+}
+
+function open(key: string, kind: 'shell' | 'logcat') {
+  const controller = new AbortController()
+  const opening = openStream(key, kind, controller.signal).finally(() => pending.delete(controller))
+  pending.set(controller, opening)
+  return opening
 }
 
 export function androidCreateShell(key: string) {
@@ -189,6 +208,13 @@ export async function androidWriteShell(id: string, data: string | Uint8Array) {
 export async function androidKillShell(id: string) {
   await sessions.get(id)?.close()
 }
+export async function androidResizeShell(id: string, rows: number, cols: number) {
+  if (![rows, cols].every(value => Number.isInteger(value) && value > 0 && value <= 65535))
+    throw new Error('Invalid terminal size')
+  const shell = sessions.get(id)
+  if (!shell) throw new Error('Android shell closed')
+  await shell.resize(rows, cols)
+}
 export const androidCloseHilog = androidKillShell
 
 function setLogPaused(id: string, paused: boolean) {
@@ -206,8 +232,9 @@ export async function androidResumeHilog(id: string) {
 }
 
 export async function closeAndroidStreams() {
-  rendererGeneration++
+  const opening = [...pending.values()]
+  for (const controller of pending.keys()) controller.abort(new Error('Renderer closed'))
   await Promise.allSettled(
-    Array.from(sessions.values(), session => session.close()),
+    [...opening, ...Array.from(sessions.values(), session => session.close())],
   )
 }

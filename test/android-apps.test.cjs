@@ -86,6 +86,17 @@ test('older devices and packages without launchers retain accurate available act
   assert.ok(!calls.some(command => command.startsWith('pm clear')))
 })
 
+test('package dump fallback ignores packages missing or uninstalled for the selected user', async () => {
+  for (const state of ['User 12: installed=false', 'User 13: installed=true']) {
+    const { apps, calls } = fixture({
+      'pm help': supported,
+      [`dumpsys package ${pkg}`]: metadata.replace('User 12: installed=true', state),
+    })
+    assert.equal((await apps.androidGetBundleInfos(key, [pkg])).length, 0)
+    assert.ok(!calls.includes(resolver))
+  }
+})
+
 test('package mutations confirm results and act only on the current user', async () => {
   const { apps } = fixture({
     'pm help': supported,

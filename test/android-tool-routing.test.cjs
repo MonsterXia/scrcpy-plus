@@ -22,7 +22,7 @@ test('Android workspace IPC is restricted to the main workspace document and ret
   }
   const module = { exports: {} }
   const script = transformSync(fs.readFileSync('src/main/lib/devices/androidTools.ts', 'utf8'), { loader: 'ts', format: 'cjs' }).code
-  vm.runInNewContext(script, { module, exports: module.exports, console, require: id => mocks[id] ?? require(id) })
+  vm.runInNewContext(script, { module, exports: module.exports, AbortController, console, require: id => mocks[id] ?? require(id) })
   module.exports.initAndroidTools(contents)
   const read = handlers['android:getBundles']
   const ev = { sender: contents, senderFrame: contents.mainFrame }

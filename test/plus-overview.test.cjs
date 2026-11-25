@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs'), vm = require('node:vm')
 const { transformSync } = require('esbuild')
 function load(extra = {}) {
- const globals = {Buffer, AbortController, setTimeout, clearTimeout, ...extra}
+ const globals = {Buffer, AbortController, AbortSignal, setTimeout, clearTimeout, ...extra}
  function source(name, dependencies = {}) {
    const module = {exports: {}}
    const code = transformSync(fs.readFileSync(`src/main/lib/devices/${name}.ts`, 'utf8'), {loader:'ts', format:'cjs'}).code
@@ -21,9 +21,18 @@ test('Android overview reads bounded fixed commands, parses metadata and closes 
  assert.equal(info.name,'Pixel 9');assert.equal(info.osVersion,'Android 16 (API 36)');assert.equal(info.physicalResolution,'1080x2400');assert.equal(info.memTotal,8388608000)
 })
 test('Android overview command timeout aborts shell and preserves the shared ADB transport', async () => {
- const { readAndroidOverview } = load({setTimeout: callback=>setTimeout(callback,5)})
- let killed=0, aborted=0
- const adb={subprocess:{noneProtocol:{spawn:async(_command,signal)=>{signal.addEventListener('abort',()=>aborted++);return {output:new ReadableStream({}),exited:Promise.resolve(),kill:()=>killed++}}}}}
- await assert.rejects(readAndroidOverview(adb),/timed out/)
- assert.equal(aborted,1);assert.equal(killed,1)
+ const timeout = new AbortController()
+ const { readAndroidOverview } = load({ AbortSignal: { timeout: () => timeout.signal } })
+ let killed = 0, cancelled = 0
+ const started = Promise.withResolvers()
+ const adb = { subprocess: { noneProtocol: { spawn: async () => ({
+   output: new ReadableStream({ pull() { started.resolve() }, cancel() { cancelled++ } }, { highWaterMark: 0 }),
+   exited: Promise.resolve(), kill() { killed++ },
+ }) } } }
+ const overview = readAndroidOverview(adb)
+ await started.promise
+ timeout.abort(new Error('timed out'))
+ await assert.rejects(overview, /timed out/)
+ await new Promise(setImmediate)
+ assert.equal(cancelled, 1); assert.equal(killed, 1)
 })

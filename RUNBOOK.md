@@ -1,5 +1,11 @@
 # Scrcpy Plus 跨平台改造（2026-11-03）
 
+## Android 工作区与投屏改动独立审查（2026-11-25）
+
+基线为 `4c060b2`。审查修复了多用户设备上的 APK 安装范围、应用详情回退和前台进程归属。Shell 现在同步 Android PTY 行列，取消授权、安装或设备读取时清理各自持有的连接。相关回归覆盖授权仍在等待、多个使用者共享 ADB、上传中止、安装命令发送前后取消、迟到的进程和终端缩放。
+
+本轮本机使用模拟设备完成双语 Electron 工作区和自动化会话验收，独立安装的 CLI 与 MCP 均列出 40 项操作。真机记录对应下方注明的构建。下一步用多用户 Android 真机复核安装与 WebView 归属、终端缩放和安装中断。最终提交的全量测试、打包及独立复审记录见本轮 PR。
+
 ## CLI 与 MCP 工作区覆盖（2026-11-25）
 
 CLI schema 与 MCP tools/list 已从 35 项扩展至 40 项。Android 七个设备工具页面均有自动化入口，USB iOS 可直接查概览。新增独立截图、Android 前台 WebView 枚举和三项桌面窗口布局/聚焦操作。应用、进程、布局、有限日志、单次 shell 复用已有命令名。参数、设备格式及剩余 GUI 范围见[能力矩阵](docs/scrcpy-plus/automation/capabilities.md)和[命令参考](docs/scrcpy-plus/automation/cli.md)。

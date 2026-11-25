@@ -1,6 +1,7 @@
 import type { Adb } from '@yume-chan/adb'
 import { AutomationFault, checkContext } from '../../../common/automation/protocol'
 import type { AutomationContext } from '../../../common/automation/protocol'
+import { closeAndroidChannel, waitForAndroidOperation } from '../../lib/devices/androidShell'
 import { workspaceArtifact } from './workspaceArtifacts'
 
 export async function captureLogcat(adb: Adb, durationMs: number, maxBytes: number, context: AutomationContext) {
@@ -8,8 +9,15 @@ export async function captureLogcat(adb: Adb, durationMs: number, maxBytes: numb
   const controller = new AbortController()
   const deadline = AbortSignal.timeout(Math.max(1, context.deadline - Date.now()))
   const signal = AbortSignal.any([context.signal, deadline, controller.signal])
-  const child = await adb.subprocess.noneProtocol.spawn('logcat -v threadtime -T 1 -b main -b system -b crash', signal)
-  void child.exited.catch(() => {})
+  const child = await waitForAndroidOperation(signal, async () => {
+    const process = await adb.subprocess.noneProtocol.spawn('logcat -v threadtime -T 1 -b main -b system -b crash')
+    void process.exited.catch(() => {})
+    if (signal.aborted) {
+      await closeAndroidChannel(() => process.kill())
+      throw signal.reason
+    }
+    return process
+  })
   const reader = child.output.getReader()
   // ADB close can wait for the peer. Cancel a pending Web Streams read as
   // soon as this capture expires, even on a silent device.
@@ -37,7 +45,7 @@ export async function captureLogcat(adb: Adb, durationMs: number, maxBytes: numb
     clearTimeout(timer)
     signal.removeEventListener('abort', cancelRead)
     reader.releaseLock()
-    await child.kill()
+    await closeAndroidChannel(() => child.kill())
   }
   checkContext(context)
   return workspaceArtifact('text/plain', Buffer.concat(chunks, size), { truncated, durationMs: Date.now() - start })

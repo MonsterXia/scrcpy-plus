@@ -41,18 +41,32 @@ export async function foregroundProcesses(adb: Adb) {
   const records = activities.split('\n')
   const record = records.find(line => /topResumedActivity=ActivityRecord/.test(line))
     ?? records.find(line => /ResumedActivity[:=]\s*ActivityRecord/.test(line))
-  const activity = record?.match(/\bu(\d+)\s+([\w.]+)\//)
+  const activity = record?.match(/ActivityRecord\{(\w+)\s+u(\d+)\s+([\w.]+)\//)
   if (!activity) return { name: '', pids: [] as number[] }
-  const [, user, name] = activity
-  const list = (await readAndroidShellOutput(adb, 'ps -A -o UID,PID,NAME', 1024 * 1024, 8000)).toString()
-  const processes = list.split('\n').flatMap(line => {
-    const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)$/)
-    if (!match || Math.floor(Number(match[1]) / 100000) !== Number(user)) return []
-    const [, , pid, processName] = match
-    if (processName !== name && !processName.startsWith(`${name}:`)) return []
-    return [{ pid: Number(pid), main: processName === name }]
-  })
-  processes.sort((a, b) => Number(b.main) - Number(a.main) || a.pid - b.pid)
+  const [, token, user, name] = activity
+  // ActivityManager filters by the packages actually hosted in each process,
+  // including custom process names and apps that share a UID. Filter the user
+  // separately because this dump spans all profiles.
+  const command = `dumpsys activity processes ${name} | grep -E '^[[:space:]]*[*](APP|PERS)[*] UID |^[[:space:]]*- ActivityRecord'`
+  const list = (await readAndroidShellOutput(adb, command, 1024 * 1024, 8000)).toString()
+  const processes: { pid: number; priority: number }[] = []
+  let current: typeof processes[number] | undefined
+  for (const line of list.trim().split(/\r?\n/)) {
+    const header = /^\s*\*(?:APP|PERS)\* UID (\d+) ProcessRecord\{\w+ (\d+):([^/\s]+)\//.exec(line)
+    if (header) {
+      const [, uid, pid, processName] = header
+      current = undefined
+      if (Number(pid) > 0 && Math.floor(Number(uid) / 100000) === Number(user)) {
+        current = { pid: Number(pid), priority: processName === name ? 1 : 0 }
+        processes.push(current)
+      }
+    } else if (current && line.trimStart().startsWith(`- ActivityRecord{${token} `) && line.trimEnd().endsWith('}')) {
+      // Remote/embedded activity references carry trailing flags; only the
+      // owning process lists the activity record itself here.
+      current.priority = 2
+    }
+  }
+  processes.sort((a, b) => b.priority - a.priority || a.pid - b.pid)
   return { name, pids: processes.map(process => process.pid) }
 }
 

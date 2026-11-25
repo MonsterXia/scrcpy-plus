@@ -67,6 +67,45 @@ test('Android app writes recheck cancellation immediately before device dispatch
   assert.equal(writes, 1)
 })
 
+test('APK cancellation reports whether pm install was dispatched and removes its staged file', async t => {
+  const fs = require('node:fs/promises')
+  const path = require('node:path')
+  const { tmpdir } = require('node:os')
+  const dir = await fs.mkdtemp(path.join(tmpdir(), 'scrcpy-plus-install-test-'))
+  t.after(() => fs.rm(dir, { recursive: true, force: true }))
+  const source = path.join(dir, 'test.apk')
+  await fs.writeFile(source, Buffer.from([0x50, 0x4b, 3, 4]))
+  for (const sent of [false, true]) {
+    const abort = new AbortController()
+    const started = Promise.withResolvers()
+    const android = androidHandlers({
+      '../../lib/devices/androidApps': { AndroidCacheUnsupportedError: class extends Error {} },
+      '../../lib/devices/android': {
+        async installAndroidApk(key, staged, dispatch, signal) {
+          assert.equal(key, target.key)
+          if (sent) dispatch()
+          started.resolve(staged)
+          return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
+        },
+      },
+    })
+    const result = android['apps.install']({ path: source }, context(abort.signal), target)
+    const staged = await started.promise
+    abort.abort()
+    await assert.rejects(result, { code: 'CANCELLED', outcome: sent ? 'unknown' : 'not-started' })
+    // The client can finish before request-owned cleanup.
+    await require('node:timers/promises').setImmediate()
+    await new Promise((resolve, reject) => {
+      const deadline = Date.now() + 1000
+      const check = () => fs.stat(staged).then(() => {
+        if (Date.now() >= deadline) reject(new Error('staged file was retained'))
+        else setTimeout(check, 5)
+      }, error => error.code === 'ENOENT' ? resolve() : reject(error))
+      check()
+    })
+  }
+})
+
 test('Android WebView enumeration checks foreground PID and snapshot carries no frame reference', async () => {
   const calls = []
   let pid = 0

@@ -18,18 +18,18 @@ function processFixture() {
   return { output, writes, proc }
 }
 
-function fixture(subprocess) {
+function fixture(subprocess, acquire) {
   const sent = [], leases = []
   const module = { exports: {} }
   const source = readFileSync('src/main/lib/devices/androidStreams.ts', 'utf8')
   const code = transformSync(source, { loader: 'ts', format: 'cjs' }).code
   const mocks = {
     'share/common/log': () => ({ warn() {} }),
-    './android': { async acquireAndroidAdb(key) {
+    './android': { acquireAndroidAdb: acquire || (async key => {
       const lease = { key, releases: 0 }
       leases.push(lease)
       return { adb: { subprocess }, release: async () => { lease.releases++ } }
-    } },
+    }) },
     'share/main/lib/window': { sendTo: (...args) => sent.push(args) },
   }
   new Function('module', 'exports', 'require', code)(
@@ -53,12 +53,18 @@ function record(message, header = 28) {
 
 test('interactive shell binds before the initial prompt, preserves UTF-8 and binary input, closes on EOF', async () => {
   const shell = processFixture()
+  const sizes = []
+  shell.proc.resize = async (rows, cols) => { sizes.push([rows, cols]) }
   const f = fixture({ shellProtocol: { async pty(opts) {
     assert.equal(opts.terminalType, 'xterm-256color')
     return shell.proc
   } } })
   const id = await f.androidCreateShell('android:usb')
   assert.match(id, /^android:shell:/)
+  await f.androidResizeShell(id, 32, 110)
+  await f.androidResizeShell(id, 40, 140)
+  await assert.rejects(f.androidResizeShell(id, 0, 140), /Invalid terminal size/)
+  assert.deepEqual(sizes, [[32, 110], [40, 140]])
   const prompt = Buffer.from('终端 $ ')
   shell.output.enqueue(prompt.subarray(0, 2))
   shell.output.enqueue(prompt.subarray(2))
@@ -78,6 +84,17 @@ test('interactive shell binds before the initial prompt, preserves UTF-8 and bin
   assert.equal(shell.proc.kills, 1)
   assert.deepEqual(f.leases, [{ key: 'android:usb', releases: 1 }])
   await assert.rejects(f.androidWriteShell(id, 'x'), /closed/)
+  await assert.rejects(f.androidResizeShell(id, 40, 140), /closed/)
+})
+
+test('legacy PTYs keep accepting input on resize', async () => {
+  const shell = processFixture()
+  const f = fixture({ noneProtocol: { pty: async () => shell.proc } })
+  const id = await f.androidCreateShell('android:legacy')
+  await f.androidResizeShell(id, 32, 110)
+  await f.androidWriteShell(id, 'x')
+  await f.androidKillShell(id)
+  assert.deepEqual(shell.writes, [Buffer.from('x')])
 })
 
 test('binary logcat parses fragmented frames, respects pause and retains tags, multiline messages and fatal priority', async () => {
@@ -124,10 +141,39 @@ test('renderer teardown isolates a late PTY open from an already live log stream
   await tick()
   await f.closeAndroidStreams()
   assert.equal(log.proc.kills, 1)
-  gate.resolve(shell.proc)
   await assert.rejects(pending, /Renderer closed/)
+  assert.deepEqual(f.leases.map(lease => lease.releases), [1, 1])
+  gate.resolve(shell.proc)
+  await tick()
   assert.equal(shell.proc.kills, 1)
   assert.deepEqual(f.leases.map(lease => lease.releases), [1, 1])
+  assert.equal(f.sent.length, 0)
+})
+
+test('renderer teardown aborts pending shell and logcat authentication', async () => {
+  const signals = []
+  const f = fixture({}, (_key, signal) => new Promise((_, reject) => {
+    signals.push(signal)
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+  }))
+  const openings = [f.androidCreateShell('android:A'), f.androidOpenHilog('android:B')]
+  const results = Promise.allSettled(openings)
+  await f.closeAndroidStreams()
+  assert.ok(signals.every(signal => signal.aborted))
+  assert.deepEqual((await results).map(result => result.reason.message), ['Renderer closed', 'Renderer closed'])
+})
+
+test('late logcat process closes once after its renderer lease is released', async () => {
+  const gate = Promise.withResolvers(), log = processFixture()
+  const f = fixture({ noneProtocol: { spawn: () => gate.promise } })
+  const opening = f.androidOpenHilog('android:A')
+  await tick()
+  await f.closeAndroidStreams()
+  await assert.rejects(opening, /Renderer closed/)
+  assert.deepEqual(f.leases.map(lease => lease.releases), [1])
+  gate.resolve(log.proc)
+  await tick()
+  assert.equal(log.proc.kills, 1)
   assert.equal(f.sent.length, 0)
 })
 

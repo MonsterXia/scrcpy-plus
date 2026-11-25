@@ -126,6 +126,7 @@ export type IpcCleanBundleCache = IpcStopBundle
 export type IpcUninstallBundle = IpcStopBundle
 export type IpcGetProcesses = (connectKey: string) => Promise<IProcess[]>
 export type IpcCreateShell = (connectKey: string) => Promise<string>
+export type IpcResizeAndroidShell = (sessionId: string, rows: number, cols: number) => Promise<void>
 export type IpcWriteShell = (sessionId: string, data: string | Uint8Array) => Promise<void>
 export type IpcKillShell = (sessionId: string) => void
 export type IpcDumpWindowHierarchy = (connectKey: string) => Promise<string>

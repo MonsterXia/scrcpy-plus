@@ -60,7 +60,10 @@ function parseBundle(name: string, dump: string, user: string, supportsCleanCach
     throw new Error('Android package metadata does not match requested package')
   const users = block.split(/^\s*User (\d+):/m)
   const userIndex = users.findIndex((id, index) => index % 2 === 1 && id === user)
-  const installedAt = (userIndex > 0 ? users[userIndex + 1] : '').match(/\bfirstInstallTime=([^\r\n]+)/)?.[1]
+  const userState = userIndex > 0 ? users[userIndex + 1] : ''
+  if (!/^[^\r\n]*\binstalled=true\b/.test(userState))
+    throw new Error('Android package is not installed for the selected user')
+  const installedAt = userState.match(/\bfirstInstallTime=([^\r\n]+)/)?.[1]
     || users[0].match(/\bfirstInstallTime=([^\r\n]+)/)?.[1]
   const flags = block.match(/^\s*(?:pkgFlags|flags)=\[([^\]]*)\]/m)?.[1]
   return {

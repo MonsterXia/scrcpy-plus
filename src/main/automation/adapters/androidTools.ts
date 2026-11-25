@@ -67,8 +67,10 @@ export const androidTools: TargetTools = {
   'apps.clear-data': appAction(androidCleanBundleData),
   'apps.clear-cache': appAction(androidCleanBundleCache),
   'apps.install': async (p, c, target) => {
-    const result = await write(c, dispatch => withInstallationSource(p.path as string, c,
-      file => installAndroidApk(target.key, file, dispatch), '.apk'))
+    const deadline = AbortSignal.timeout(Math.max(1, c.deadline - Date.now()))
+    const signal = AbortSignal.any([c.signal, deadline])
+    const result = await write(c, dispatch => withInstallationSource(p.path as string, { ...c, signal },
+      file => installAndroidApk(target.key, file, dispatch, signal), '.apk'))
     return { completed: true, cleanupConfirmed: result.cleanupConfirmed }
   },
   'shell.run': (p, c, target) => write(c, dispatch =>
