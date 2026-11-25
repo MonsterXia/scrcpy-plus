@@ -14,9 +14,9 @@ The 1.0.5-dev.3 prerelease adds in-app Apple ID sign-in, WDA preparation and ren
 
 Development automation: the shared local service, standalone Node CLI and [MCP stdio adapter](docs/scrcpy-plus/automation/mcp.md) expose sessions, screenshots, input, mirror window layouts, Android and Harmony workspace tools, and USB iOS overview. See the [automation guide](docs/scrcpy-plus/automation/README.md) and [Agent skill](.agents/skills/scrcpy-plus-automation/SKILL.md). Local simulated workflows pass; physical-device automation and Windows automation end-to-end acceptance remain pending.
 
-## 1.0.5-dev.4 release candidate
+## 1.0.5-dev.4 development prerelease
 
-This candidate adds seven Android workspace tools, keyboard-accessible mirror controls, and improved USB iPhone recovery. The standalone CLI and MCP client expose 40 operations. See the [candidate notes](docs/releases/1.0.5-dev.4.md) for scope and device coverage.
+[Download Scrcpy Plus 1.0.5-dev.4](https://github.com/MonsterXia/scrcpy-plus/releases/tag/v1.0.5-dev.4) for Windows x64 or Mac Apple Silicon. This release adds seven Android workspace tools, keyboard-accessible mirror controls, and improved USB iPhone recovery. The standalone CLI and MCP client expose 40 operations. See the [release notes](docs/releases/1.0.5-dev.4.md) for scope and device coverage.
 
 ## 1.0.5-dev.3 development prerelease
 

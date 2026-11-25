@@ -1,0 +1,618 @@
+{
+  "publishedAt": "2026-11-25T07:58:38Z",
+  "preparationPr": "https://github.com/MonsterXia/scrcpy-plus/pull/107",
+  "preparationCi": "https://github.com/MonsterXia/scrcpy-plus/actions/runs/45565862194",
+  "build": {
+    "sourceCommit": "5371b645cc589980a5859753053a73b9903a5137",
+    "runId": 45568243450,
+    "runUrl": "https://github.com/MonsterXia/scrcpy-plus/actions/runs/45568243450",
+    "artifacts": [
+      {
+        "id": 15001718262,
+        "name": "windows-release-x64",
+        "digest": "sha256:cb5350f26581a215a8cad87b20ac34dfee4b61d097079eb395d8c2df978be91b",
+        "size_in_bytes": 196038746
+      },
+      {
+        "id": 15000789891,
+        "name": "macos-release-arm64",
+        "digest": "sha256:f61ca4490c79427dc53c38d686dd7cea00c80fdc3b71af49da8a584b8f92433c",
+        "size_in_bytes": 190152808
+      }
+    ],
+    "jobs": [
+      {
+        "name": "release-source",
+        "conclusion": "success",
+        "started_at": "2026-11-25T07:27:15Z",
+        "completed_at": "2026-11-25T07:27:18Z"
+      },
+      {
+        "name": "ios-wda / wda",
+        "conclusion": "success",
+        "started_at": "2026-11-25T07:27:21Z",
+        "completed_at": "2026-11-25T07:29:27Z"
+      },
+      {
+        "name": "macos-release",
+        "conclusion": "success",
+        "started_at": "2026-11-25T07:29:33Z",
+        "completed_at": "2026-11-25T07:45:17Z"
+      },
+      {
+        "name": "windows-release",
+        "conclusion": "success",
+        "started_at": "2026-11-25T07:29:30Z",
+        "completed_at": "2026-11-25T07:44:08Z"
+      }
+    ]
+  },
+  "manifest": {
+    "version": "1.0.5-dev.4",
+    "tag": "v1.0.5-dev.4",
+    "repository": "MonsterXia/scrcpy-plus",
+    "operationsCommit": "28dd631ad175e32f55f8a6f5724c376cad665ddd",
+    "sourceCommit": "5371b645cc589980a5859753053a73b9903a5137",
+    "runUrl": "https://github.com/MonsterXia/scrcpy-plus/actions/runs/45568243450",
+    "artifacts": [
+      {
+        "id": 15001718262,
+        "name": "windows-release-x64",
+        "digest": "sha256:cb5350f26581a215a8cad87b20ac34dfee4b61d097079eb395d8c2df978be91b",
+        "size_in_bytes": 196038746
+      },
+      {
+        "id": 15000789891,
+        "name": "macos-release-arm64",
+        "digest": "sha256:f61ca4490c79427dc53c38d686dd7cea00c80fdc3b71af49da8a584b8f92433c",
+        "size_in_bytes": 190152808
+      }
+    ],
+    "validatedAt": "2026-11-25T07:49:37.353Z",
+    "files": [
+      {
+        "name": "Scrcpy-Plus-1.0.5-dev.4-win-x64.exe",
+        "size": 196165412,
+        "sha256": "9b33d1442f67d9e6eb39864d8723692d9ff3a9a93b63c2b61e39dcdfa8bcb6e7"
+      },
+      {
+        "name": "Scrcpy-Plus-1.0.5-dev.4-win-x64.exe.blockmap",
+        "size": 205241,
+        "sha256": "95c70a069230465a90abf7483d1a363fa27e10ed4bd8886be0d51322a907e986"
+      },
+      {
+        "name": "latest.yml",
+        "size": 373,
+        "sha256": "0f72fa1edf870f1338b93650d38079b3f047fc4dda8bd0b144d442184d1f15f0"
+      },
+      {
+        "name": "verification-win-x64.json",
+        "size": 383,
+        "sha256": "3b4010dcc923a469ed7bf0e815b79dee67af8bc198ec6e98eb1a9315f5d195ad"
+      },
+      {
+        "name": "verification-notary-mac-arm64.json",
+        "size": 111,
+        "sha256": "94ac8eca041cd8b62f49510999ef2c61a173931503dccdd9982f5f9bc8ebe3c1"
+      },
+      {
+        "name": "scrcpy-plus-cli-1.0.5-dev.4.tgz",
+        "size": 202345,
+        "sha256": "3f22fe6bca23509cf2b3005b3c71dea13df03b9589a319b75ae52cea3e29942f"
+      },
+      {
+        "name": "Scrcpy-Plus-1.0.5-dev.4-mac-arm64.dmg",
+        "size": 190395604,
+        "sha256": "6ec9645fa7c6b5c94470bcfd0bf4a9e8ed05cb5514152b66cbba53097e754fae"
+      },
+      {
+        "name": "Scrcpy-Plus-1.0.5-dev.4-mac-arm64.dmg.blockmap",
+        "size": 199824,
+        "sha256": "7bc957d2e0820a3803f0f2c2aeaaefb8a56dfedef5619253f460746810667ef5"
+      },
+      {
+        "name": "latest-mac.yml",
+        "size": 377,
+        "sha256": "b54cefcd91bd3cefa159102b68851ad359129ff84fdf9d5386396261edb327ea"
+      },
+      {
+        "name": "verification-mac-arm64.json",
+        "size": 693,
+        "sha256": "cb011ac8429a71e64c37bb98ac5f8547874d0a71b66012ca52c153ff7b34ea4c"
+      },
+      {
+        "name": "release-validation.json",
+        "size": 4123,
+        "sha256": "4ab093052cfbf9f5513da362fca69da5e0292ddb58f7ebbb8fb395a0796415d1"
+      },
+      {
+        "name": "SHA256SUMS.txt",
+        "size": 1063,
+        "sha256": "b159d5e4387abbbfd7a165d4626a429bd32c8b05c0c9f4b8785b3135a951413a"
+      }
+    ],
+    "localMacVerification": {
+      "checkedAt": "2026-11-25T07:49:18.185Z",
+      "runUrl": "https://github.com/MonsterXia/scrcpy-plus/actions/runs/45568243450",
+      "sourceCommit": "5371b645cc589980a5859753053a73b9903a5137",
+      "version": "1.0.5-dev.4",
+      "architecture": "arm64",
+      "installer": "Scrcpy Plus-1.0.5-dev.4-mac-arm64.dmg",
+      "sha256": "6ec9645fa7c6b5c94470bcfd0bf4a9e8ed05cb5514152b66cbba53097e754fae",
+      "sha512": "BKveNpqg7JuJLmuCcMDqObHkPxiUViydqraZOC/x+opZlVwNZXAYHK7hAQAf1AnqHEIjuu4n9WHYYULXlEjm7Q==",
+      "size": 190395604,
+      "metadata": [
+        "latest-mac.yml"
+      ],
+      "teamId": "2DMND6RL8D",
+      "ci": {
+        "developerIdSignature": "passed",
+        "appNotarization": "passed",
+        "dmgNotarization": "passed",
+        "gatekeeper": "passed",
+        "installationAndStartup": "passed"
+      },
+      "downloadedArtifact": {
+        "appSignature": "passed",
+        "appTicket": "passed",
+        "appGatekeeper": "passed",
+        "dmgSignature": "passed",
+        "dmgTicket": "passed",
+        "dmgGatekeeper": "passed",
+        "updateMetadata": "passed",
+        "blockmap": "passed"
+      },
+      "scope": "GitHub-hosted installed-app smoke; independent local downloaded artifact verification. No physical-device testing or public release."
+    },
+    "checks": {
+      "sourceAndBuildJobs": "passed",
+      "installerHashes": "passed",
+      "updateMetadata": "passed",
+      "blockmaps": "passed",
+      "macSigningAndNotarization": "passed",
+      "installedStartup": "passed-in-CI",
+      "cliPackage": "passed"
+    },
+    "boundaries": [
+      "Windows remains unsigned",
+      "No new physical-device or older-macOS compatibility matrix",
+      "No daily installation replacement"
+    ]
+  },
+  "draftFullDownload": {
+    "checkedAt": "2026-11-25T07:58:24.458860+00:00",
+    "releaseId": 457796231,
+    "url": "https://github.com/MonsterXia/scrcpy-plus/releases/tag/untagged-6aa6f837540d49f81d70",
+    "sourceCommit": "5371b645cc589980a5859753053a73b9903a5137",
+    "tag": "v1.0.5-dev.4",
+    "draft": true,
+    "prerelease": true,
+    "latestStable": "v1.0.4",
+    "mode": "draft",
+    "downloadedAndVerified": [
+      {
+        "name": "latest-mac.yml",
+        "id": 790610936,
+        "size": 377,
+        "sha256": "b54cefcd91bd3cefa159102b68851ad359129ff84fdf9d5386396261edb327ea"
+      },
+      {
+        "name": "latest.yml",
+        "id": 790604179,
+        "size": 373,
+        "sha256": "0f72fa1edf870f1338b93650d38079b3f047fc4dda8bd0b144d442184d1f15f0"
+      },
+      {
+        "name": "release-validation.json",
+        "id": 790611163,
+        "size": 4123,
+        "sha256": "4ab093052cfbf9f5513da362fca69da5e0292ddb58f7ebbb8fb395a0796415d1"
+      },
+      {
+        "name": "Scrcpy-Plus-1.0.5-dev.4-mac-arm64.dmg",
+        "id": 790604954,
+        "size": 190395604,
+        "sha256": "6ec9645fa7c6b5c94470bcfd0bf4a9e8ed05cb5514152b66cbba53097e754fae"
+      },
+      {
+        "name": "Scrcpy-Plus-1.0.5-dev.4-mac-arm64.dmg.blockmap",
+        "id": 790610757,
+        "size": 199824,
+        "sha256": "7bc957d2e0820a3803f0f2c2aeaaefb8a56dfedef5619253f460746810667ef5"
+      },
+      {
+        "name": "Scrcpy-Plus-1.0.5-dev.4-win-x64.exe",
+        "id": 790600986,
+        "size": 196165412,
+        "sha256": "9b33d1442f67d9e6eb39864d8723692d9ff3a9a93b63c2b61e39dcdfa8bcb6e7"
+      },
+      {
+        "name": "Scrcpy-Plus-1.0.5-dev.4-win-x64.exe.blockmap",
+        "id": 790603991,
+        "size": 205241,
+        "sha256": "95c70a069230465a90abf7483d1a363fa27e10ed4bd8886be0d51322a907e986"
+      },
+      {
+        "name": "scrcpy-plus-cli-1.0.5-dev.4.tgz",
+        "id": 790604416,
+        "size": 202345,
+        "sha256": "3f22fe6bca23509cf2b3005b3c71dea13df03b9589a319b75ae52cea3e29942f"
+      },
+      {
+        "name": "SHA256SUMS.txt",
+        "id": 790611305,
+        "size": 1063,
+        "sha256": "b159d5e4387abbbfd7a165d4626a429bd32c8b05c0c9f4b8785b3135a951413a"
+      },
+      {
+        "name": "verification-mac-arm64.json",
+        "id": 790611069,
+        "size": 693,
+        "sha256": "cb011ac8429a71e64c37bb98ac5f8547874d0a71b66012ca52c153ff7b34ea4c"
+      },
+      {
+        "name": "verification-notary-mac-arm64.json",
+        "id": 790604343,
+        "size": 111,
+        "sha256": "94ac8eca041cd8b62f49510999ef2c61a173931503dccdd9982f5f9bc8ebe3c1"
+      },
+      {
+        "name": "verification-win-x64.json",
+        "id": 790604278,
+        "size": 383,
+        "sha256": "3b4010dcc923a469ed7bf0e815b79dee67af8bc198ec6e98eb1a9315f5d195ad"
+      }
+    ],
+    "passed": true
+  },
+  "publishedReadback": {
+    "checkedAt": "2026-11-25T07:58:58.816832+00:00",
+    "releaseId": 457796231,
+    "url": "https://github.com/MonsterXia/scrcpy-plus/releases/tag/v1.0.5-dev.4",
+    "sourceCommit": "5371b645cc589980a5859753053a73b9903a5137",
+    "tag": "v1.0.5-dev.4",
+    "draft": false,
+    "prerelease": true,
+    "latestStable": "v1.0.4",
+    "mode": "published",
+    "downloadedAndVerified": [
+      {
+        "name": "latest-mac.yml",
+        "id": 790610936,
+        "size": 377,
+        "sha256": "b54cefcd91bd3cefa159102b68851ad359129ff84fdf9d5386396261edb327ea"
+      },
+      {
+        "name": "latest.yml",
+        "id": 790604179,
+        "size": 373,
+        "sha256": "0f72fa1edf870f1338b93650d38079b3f047fc4dda8bd0b144d442184d1f15f0"
+      },
+      {
+        "name": "release-validation.json",
+        "id": 790611163,
+        "size": 4123,
+        "sha256": "4ab093052cfbf9f5513da362fca69da5e0292ddb58f7ebbb8fb395a0796415d1"
+      },
+      {
+        "name": "Scrcpy-Plus-1.0.5-dev.4-mac-arm64.dmg",
+        "id": 790604954,
+        "size": 190395604,
+        "sha256": "6ec9645fa7c6b5c94470bcfd0bf4a9e8ed05cb5514152b66cbba53097e754fae"
+      },
+      {
+        "name": "Scrcpy-Plus-1.0.5-dev.4-mac-arm64.dmg.blockmap",
+        "id": 790610757,
+        "size": 199824,
+        "sha256": "7bc957d2e0820a3803f0f2c2aeaaefb8a56dfedef5619253f460746810667ef5"
+      },
+      {
+        "name": "Scrcpy-Plus-1.0.5-dev.4-win-x64.exe",
+        "id": 790600986,
+        "size": 196165412,
+        "sha256": "9b33d1442f67d9e6eb39864d8723692d9ff3a9a93b63c2b61e39dcdfa8bcb6e7"
+      },
+      {
+        "name": "Scrcpy-Plus-1.0.5-dev.4-win-x64.exe.blockmap",
+        "id": 790603991,
+        "size": 205241,
+        "sha256": "95c70a069230465a90abf7483d1a363fa27e10ed4bd8886be0d51322a907e986"
+      },
+      {
+        "name": "scrcpy-plus-cli-1.0.5-dev.4.tgz",
+        "id": 790604416,
+        "size": 202345,
+        "sha256": "3f22fe6bca23509cf2b3005b3c71dea13df03b9589a319b75ae52cea3e29942f"
+      },
+      {
+        "name": "SHA256SUMS.txt",
+        "id": 790611305,
+        "size": 1063,
+        "sha256": "b159d5e4387abbbfd7a165d4626a429bd32c8b05c0c9f4b8785b3135a951413a"
+      },
+      {
+        "name": "verification-mac-arm64.json",
+        "id": 790611069,
+        "size": 693,
+        "sha256": "cb011ac8429a71e64c37bb98ac5f8547874d0a71b66012ca52c153ff7b34ea4c"
+      },
+      {
+        "name": "verification-notary-mac-arm64.json",
+        "id": 790604343,
+        "size": 111,
+        "sha256": "94ac8eca041cd8b62f49510999ef2c61a173931503dccdd9982f5f9bc8ebe3c1"
+      },
+      {
+        "name": "verification-win-x64.json",
+        "id": 790604278,
+        "size": 383,
+        "sha256": "3b4010dcc923a469ed7bf0e815b79dee67af8bc198ec6e98eb1a9315f5d195ad"
+      }
+    ],
+    "passed": true,
+    "verificationMethod": "metadata readback against fixed IDs from full draft download",
+    "draftDownloadVerifiedAt": "2026-11-25T07:58:24.458860+00:00"
+  },
+  "onlineProvider": {
+    "beforePublication": {
+      "repository": "MonsterXia/scrcpy-plus",
+      "current": "1.0.5-dev.4",
+      "checkedAt": "2026-11-25T07:09:17.965Z",
+      "scenarios": [
+        {
+          "platform": "win32",
+          "channel": "latest",
+          "beta": false,
+          "version": "1.0.4",
+          "tag": "v1.0.4",
+          "updateAvailable": false,
+          "files": [
+            "https://github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.4/Scrcpy-Harmony-1.0.4-win-x64.exe"
+          ],
+          "requests": [
+            "api.github.com/repos/MonsterXia/scrcpy-plus/releases?per_page=100&page=1",
+            "github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.4/latest.yml"
+          ]
+        },
+        {
+          "platform": "win32",
+          "channel": "latest",
+          "beta": true,
+          "version": "1.0.5-dev.3",
+          "tag": "v1.0.5-dev.3",
+          "updateAvailable": false,
+          "files": [
+            "https://github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.5-dev.3/Scrcpy-Plus-1.0.5-dev.3-win-x64.exe"
+          ],
+          "requests": [
+            "api.github.com/repos/MonsterXia/scrcpy-plus/releases?per_page=100&page=1",
+            "github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.5-dev.3/latest.yml"
+          ]
+        },
+        {
+          "platform": "darwin",
+          "channel": "latest",
+          "beta": false,
+          "version": "1.0.4",
+          "tag": "v1.0.4",
+          "updateAvailable": false,
+          "files": [
+            "https://github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.4/Scrcpy-Harmony-1.0.4-mac-arm64.dmg"
+          ],
+          "requests": [
+            "api.github.com/repos/MonsterXia/scrcpy-plus/releases?per_page=100&page=1",
+            "github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.4/latest-mac.yml"
+          ]
+        },
+        {
+          "platform": "darwin",
+          "channel": "latest",
+          "beta": true,
+          "version": "1.0.5-dev.3",
+          "tag": "v1.0.5-dev.3",
+          "updateAvailable": false,
+          "files": [
+            "https://github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.5-dev.3/Scrcpy-Plus-1.0.5-dev.3-mac-arm64.dmg"
+          ],
+          "requests": [
+            "api.github.com/repos/MonsterXia/scrcpy-plus/releases?per_page=100&page=1",
+            "github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.5-dev.3/latest-mac.yml"
+          ]
+        }
+      ],
+      "passed": true,
+      "expectations": {
+        "stable": {
+          "version": "1.0.4",
+          "updateAvailable": false
+        },
+        "prerelease": {
+          "version": "1.0.5-dev.3",
+          "updateAvailable": false
+        }
+      }
+    },
+    "previousVersion": {
+      "repository": "MonsterXia/scrcpy-plus",
+      "current": "1.0.5-dev.3",
+      "checkedAt": "2026-11-25T07:59:06.063Z",
+      "scenarios": [
+        {
+          "platform": "win32",
+          "channel": "latest",
+          "beta": false,
+          "version": "1.0.4",
+          "tag": "v1.0.4",
+          "updateAvailable": false,
+          "files": [
+            "https://github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.4/Scrcpy-Harmony-1.0.4-win-x64.exe"
+          ],
+          "requests": [
+            "api.github.com/repos/MonsterXia/scrcpy-plus/releases?per_page=100&page=1",
+            "github.com/MonsterXia/scrcpy-plus/releases?page=1",
+            "github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.4/latest.yml"
+          ]
+        },
+        {
+          "platform": "win32",
+          "channel": "latest",
+          "beta": true,
+          "version": "1.0.5-dev.4",
+          "tag": "v1.0.5-dev.4",
+          "updateAvailable": true,
+          "files": [
+            "https://github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.5-dev.4/Scrcpy-Plus-1.0.5-dev.4-win-x64.exe"
+          ],
+          "requests": [
+            "api.github.com/repos/MonsterXia/scrcpy-plus/releases?per_page=100&page=1",
+            "github.com/MonsterXia/scrcpy-plus/releases?page=1",
+            "github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.5-dev.4/latest.yml"
+          ]
+        },
+        {
+          "platform": "darwin",
+          "channel": "latest",
+          "beta": false,
+          "version": "1.0.4",
+          "tag": "v1.0.4",
+          "updateAvailable": false,
+          "files": [
+            "https://github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.4/Scrcpy-Harmony-1.0.4-mac-arm64.dmg"
+          ],
+          "requests": [
+            "api.github.com/repos/MonsterXia/scrcpy-plus/releases?per_page=100&page=1",
+            "github.com/MonsterXia/scrcpy-plus/releases?page=1",
+            "github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.4/latest-mac.yml"
+          ]
+        },
+        {
+          "platform": "darwin",
+          "channel": "latest",
+          "beta": true,
+          "version": "1.0.5-dev.4",
+          "tag": "v1.0.5-dev.4",
+          "updateAvailable": true,
+          "files": [
+            "https://github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.5-dev.4/Scrcpy-Plus-1.0.5-dev.4-mac-arm64.dmg"
+          ],
+          "requests": [
+            "api.github.com/repos/MonsterXia/scrcpy-plus/releases?per_page=100&page=1",
+            "github.com/MonsterXia/scrcpy-plus/releases?page=1",
+            "github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.5-dev.4/latest-mac.yml"
+          ]
+        }
+      ],
+      "passed": true,
+      "expectations": {
+        "stable": {
+          "version": "1.0.4",
+          "updateAvailable": false
+        },
+        "prerelease": {
+          "version": "1.0.5-dev.4",
+          "updateAvailable": true
+        }
+      }
+    },
+    "currentVersion": {
+      "repository": "MonsterXia/scrcpy-plus",
+      "current": "1.0.5-dev.4",
+      "checkedAt": "2026-11-25T07:59:06.063Z",
+      "scenarios": [
+        {
+          "platform": "win32",
+          "channel": "latest",
+          "beta": false,
+          "version": "1.0.4",
+          "tag": "v1.0.4",
+          "updateAvailable": false,
+          "files": [
+            "https://github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.4/Scrcpy-Harmony-1.0.4-win-x64.exe"
+          ],
+          "requests": [
+            "api.github.com/repos/MonsterXia/scrcpy-plus/releases?per_page=100&page=1",
+            "github.com/MonsterXia/scrcpy-plus/releases?page=1",
+            "github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.4/latest.yml"
+          ]
+        },
+        {
+          "platform": "win32",
+          "channel": "latest",
+          "beta": true,
+          "version": "1.0.5-dev.4",
+          "tag": "v1.0.5-dev.4",
+          "updateAvailable": false,
+          "files": [
+            "https://github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.5-dev.4/Scrcpy-Plus-1.0.5-dev.4-win-x64.exe"
+          ],
+          "requests": [
+            "api.github.com/repos/MonsterXia/scrcpy-plus/releases?per_page=100&page=1",
+            "github.com/MonsterXia/scrcpy-plus/releases?page=1",
+            "github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.5-dev.4/latest.yml"
+          ]
+        },
+        {
+          "platform": "darwin",
+          "channel": "latest",
+          "beta": false,
+          "version": "1.0.4",
+          "tag": "v1.0.4",
+          "updateAvailable": false,
+          "files": [
+            "https://github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.4/Scrcpy-Harmony-1.0.4-mac-arm64.dmg"
+          ],
+          "requests": [
+            "api.github.com/repos/MonsterXia/scrcpy-plus/releases?per_page=100&page=1",
+            "github.com/MonsterXia/scrcpy-plus/releases?page=1",
+            "github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.4/latest-mac.yml"
+          ]
+        },
+        {
+          "platform": "darwin",
+          "channel": "latest",
+          "beta": true,
+          "version": "1.0.5-dev.4",
+          "tag": "v1.0.5-dev.4",
+          "updateAvailable": false,
+          "files": [
+            "https://github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.5-dev.4/Scrcpy-Plus-1.0.5-dev.4-mac-arm64.dmg"
+          ],
+          "requests": [
+            "api.github.com/repos/MonsterXia/scrcpy-plus/releases?per_page=100&page=1",
+            "github.com/MonsterXia/scrcpy-plus/releases?page=1",
+            "github.com/MonsterXia/scrcpy-plus/releases/download/v1.0.5-dev.4/latest-mac.yml"
+          ]
+        }
+      ],
+      "passed": true,
+      "expectations": {
+        "stable": {
+          "version": "1.0.4",
+          "updateAvailable": false
+        },
+        "prerelease": {
+          "version": "1.0.5-dev.4",
+          "updateAvailable": false
+        }
+      }
+    }
+  },
+  "releasePage": {
+    "passed": true,
+    "url": "https://github.com/MonsterXia/scrcpy-plus/releases/tag/v1.0.5-dev.4",
+    "httpStatus": 200,
+    "scope": "Production openRelease handler with shell.openExternal captured; live prior-version Beta selections on both platforms. Public release page fetched over HTTPS."
+  },
+  "physicalDeviceScope": {
+    "checkedAt": "2026-11-25T07:11:21.446363+00:00",
+    "existingDesktopVersion": "1.0.5-dev.3",
+    "existingSessionStates": [
+      {
+        "platform": "ios",
+        "state": "running"
+      }
+    ],
+    "candidateDeviceTests": "not run; a live iPhone mirror belongs to the existing desktop instance",
+    "scope": "historical hardware evidence and candidate simulated-device tests are recorded separately"
+  }
+}
