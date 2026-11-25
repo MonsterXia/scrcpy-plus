@@ -44,7 +44,7 @@ test('codec changes and native queue loss require another keyframe', () => {
   assert.deepEqual(Array.from(next.configuration), Array.from(changed))
   assert.equal(gate.push({ data: delta, timestamp: 5, reset: true }), undefined)
 })
-function androidFixture(directory, filesystem = fs.promises, localAdb = async () => { throw Error("No local ADB server") }, globals = {}) {
+function androidFixture(directory, filesystem = fs.promises, localAdb = async () => { throw Error("No local ADB server") }, globals = {}, sdkModules = {}) {
   const devices = ['a', 'b'].map(serial => ({ serial, name: 'Same model',
     closes: 0, connects: 0, raw: { claimInterface: async () => {}, releaseInterface: async () => {}, open: async () => {}, transferIn: async () => ({}), transferOut: async () => ({}), close: async () => { devices.find(d => d.serial === serial).closes++ } },
     async connect() { this.connects++; await this.raw.open(); return { serial } },
@@ -57,7 +57,7 @@ function androidFixture(directory, filesystem = fs.promises, localAdb = async ()
     'node:fs/promises': filesystem,
     '@yume-chan/adb': {
       AdbDaemonTransport: { authenticate: async options => { authentications.push(options.serial); await devices.find(device => device.serial === options.serial)?.authorize?.(); return { serial: options.serial } } },
-      Adb: class { constructor(transport) { this.serial = transport.serial } async close() {} },
+      Adb: class { constructor(transport) { this.transport = transport; this.serial = transport.serial } async close() {} },
     },
     '@yume-chan/adb-daemon-webusb': { AdbDaemonWebUsbDeviceManager: class { async getDevices() { return devices } } },
     '@yume-chan/adb-scrcpy': {
@@ -78,6 +78,7 @@ function androidFixture(directory, filesystem = fs.promises, localAdb = async ()
     '@yume-chan/stream-extra': { ReadableStream, WritableStream },
     'node:module': { createRequire: () => () => ({ WebUSB: class {} }) },
     'share/main/lib/util': { getUserDataPath: file => path.join(directory, file), resolveResources: () => path.join(directory, 'server') },
+    ...sdkModules,
   }, globals)
   return { ...api, devices, clients, authentications }
 }
@@ -303,6 +304,102 @@ test('closing a mirror waiting for USB authorization releases only its own claim
       await lease.release()
     }
     assert.equal(device.closes, 1)
+  }
+})
+test('cancelled Tango mirror startup closes only its sockets and permits a fresh start on shared ADB', { timeout: 8000 }, async t => {
+  const { Adb } = await import('@yume-chan/adb')
+  const scrcpy = await import('@yume-chan/adb-scrcpy')
+  const { MaybeConsumable } = await import('@yume-chan/stream-extra')
+  for (const phase of ['upload', 'upload-timeout', 'process-open', 'forward-open', 'metadata']) {
+    const entered = Promise.withResolvers(), late = Promise.withResolvers()
+    const openSockets = new Set(), serverPaths = [], removed = [], namespaces = new Set()
+    let retry = false, video = true, transportCloses = 0
+    const transport = {
+      serial: 'a', clientFeatures: [], banner: { features: [] }, maxPayloadSize: 65536,
+      disconnected: new Promise(() => {}),
+      async close() { transportCloses++ },
+      async connect(service) {
+        let read
+        const closed = Promise.withResolvers()
+        const socket = {
+          service, closed: closed.promise,
+          readable: new ReadableStream({ start(controller) { read = controller } }),
+          writable: new MaybeConsumable.WritableStream({ write(bytes) {
+            if (service === 'sync:' && Buffer.from(bytes).includes('DONE')) {
+              if (!retry && phase.startsWith('upload')) entered.resolve()
+              else read.enqueue(Buffer.from('OKAY\0\0\0\0'))
+            }
+          } }),
+          close() {
+            if (openSockets.delete(socket)) {
+              try { read.close() } catch { /* Already cancelled by sync.dispose(). */ }
+              closed.resolve()
+            }
+          },
+        }
+        openSockets.add(socket)
+        if (service.startsWith('exec:rm -f ')) {
+          removed.push(service.slice('exec:rm -f '.length))
+          socket.close()
+        } else if (service.startsWith('exec:CLASSPATH=')) {
+          serverPaths.push(service.match(/CLASSPATH=(\S+)/)[1])
+          video = true
+          if (!retry && phase === 'process-open') { entered.resolve(); await late.promise }
+        } else if (service.startsWith('localabstract:scrcpy_')) {
+          namespaces.add(service)
+          if (video) {
+            video = false
+            if (!retry && phase === 'forward-open') { entered.resolve(); await late.promise }
+            read.enqueue(Buffer.from([0]))
+            if (retry) {
+              const metadata = Buffer.alloc(76)
+              metadata.write('test'); metadata.write('h264', 64)
+              metadata.writeUInt32BE(640, 68); metadata.writeUInt32BE(480, 72)
+              read.enqueue(metadata)
+            }
+          } else if (!retry && phase === 'metadata') entered.resolve()
+        }
+        return socket
+      },
+    }
+    const signals = {
+      any: AbortSignal.any.bind(AbortSignal),
+      timeout: ms => AbortSignal.timeout(!retry && phase === 'upload-timeout' && ms === 30000 ? 60 : ms),
+    }
+    const f = androidFixture(directory(t), undefined, undefined, { AbortSignal: signals }, {
+      '@yume-chan/adb': { Adb, AdbDaemonTransport: { authenticate: async () => transport } },
+      '@yume-chan/adb-scrcpy': scrcpy,
+    })
+    const [target] = await f.discoverAndroid()
+    const workspace = await f.acquireAndroidAdb(target.key)
+    const shell = await workspace.adb.createSocket('shell:')
+    const mirror = new f.AndroidMirror(target)
+    const stopped = assert.rejects(mirror.start(() => {}, () => {}), phase === 'upload-timeout' ? /timeout/i : /closed/)
+    await entered.promise
+    // Let Tango construct its client for the metadata phase.
+    await new Promise(setImmediate)
+    if (phase === 'upload-timeout') {
+      // AbortSignal.timeout uses an unref'ed timer in Node.
+      await new Promise(resolve => setTimeout(resolve, 75))
+    } else await mirror.close()
+    await stopped
+    assert.equal(removed.length, 1)
+    assert.match(removed[0], /^\/data\/local\/tmp\/scrcpy-plus-server-[0-9a-f]+\.jar$/)
+    retry = true
+    const next = new f.AndroidMirror(target)
+    await next.start(() => {}, () => {})
+    // Previous opens can still receive an ADB reply after the retry is live.
+    late.resolve()
+    await new Promise(setImmediate)
+    assert.notEqual(removed[0], serverPaths.at(-1))
+    if (phase === 'forward-open' || phase === 'metadata') assert.equal(namespaces.size, 2)
+    assert.equal(openSockets.size, 4, phase) // Workspace, new process, video and control.
+    await next.close()
+    assert.deepEqual([...openSockets], [shell])
+    assert.equal(transportCloses, 0)
+    await shell.close()
+    await workspace.release()
+    assert.equal(transportCloses, 1)
   }
 })
 test('a late native USB open cannot close a replacement connection after timeout', async t => {

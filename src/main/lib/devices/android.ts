@@ -1,12 +1,12 @@
 import { Adb, AdbDaemonTransport } from '@yume-chan/adb'
-import type { AdbCredentialStore, AdbPrivateKey } from '@yume-chan/adb'
+import type { AdbCredentialStore, AdbPrivateKey, AdbSocket } from '@yume-chan/adb'
 import { AdbDaemonWebUsbDeviceManager } from '@yume-chan/adb-daemon-webusb'
 import type { AdbDaemonWebUsbDevice } from '@yume-chan/adb-daemon-webusb'
 import type { AndroidKeyCode } from '@yume-chan/scrcpy'
 import { AdbScrcpyClient, AdbScrcpyOptions3_3_3 } from '@yume-chan/adb-scrcpy'
 import { ReadableStream, WritableStream } from '@yume-chan/stream-extra'
 import { createRequire } from 'node:module'
-import { generateKeyPairSync, randomUUID } from 'node:crypto'
+import { generateKeyPairSync, randomInt, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import type { FileHandle } from 'node:fs/promises'
 import { open, readFile, writeFile, mkdir, link, unlink } from 'node:fs/promises'
@@ -347,11 +347,39 @@ class AndroidConnection {
 
 type AndroidLease = Awaited<ReturnType<typeof acquireAndroidAdb>>
 
+// Tango creates sync, exec and forward sockets through this Adb instance.
+// Keep its ownership independent of workspace shells and the physical transport.
+class AndroidMirrorAdb extends Adb {
+  private sockets = new Set<AdbSocket>()
+  get hasOpenSockets() { return this.sockets.size > 0 }
+  constructor(shared: Adb, private signal: AbortSignal) { super(shared.transport) }
+  override async createSocket(service: string) {
+    this.signal.throwIfAborted()
+    const socket = await super.createSocket(service)
+    if (this.signal.aborted) {
+      await socket.close()
+      throw this.signal.reason
+    }
+    this.sockets.add(socket)
+    const remove = () => this.sockets.delete(socket)
+    void socket.closed.then(remove, remove)
+    return socket
+  }
+  override async close() {
+    await Promise.all(Array.from(this.sockets, async socket => {
+      await socket.close()
+      await socket.closed
+    }))
+  }
+}
+
 export class AndroidMirror {
   private lease?: AndroidLease
   private acquiring?: Promise<AndroidLease>
   private installs = new Set<Promise<void>>()
   private lifetime = new AbortController()
+  private mirrorAdb?: AndroidMirrorAdb
+  private pendingServerPath?: string
   private client?: AdbScrcpyClient<AdbScrcpyOptions3_3_3<true>>
   private closed = false
   private closing?: Promise<void>
@@ -363,32 +391,40 @@ export class AndroidMirror {
   private releaseQueuedFor: number | undefined
   constructor(private target: ITarget) {}
   private check() { if (this.closed) throw new Error('Android session closed') }
+  private startupStep<T>(work: () => Promise<T>) {
+    const signal = AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(30000)])
+    return waitForAndroidOperation(signal, work)
+  }
   async start(frame: (frame: NativeFrame) => void, state: (state: string) => void) {
     try {
       this.check(); state('authorizing')
       this.acquiring = acquireAndroidAdb(this.target.key, this.lifetime.signal)
-      const { adb } = this.lease = await this.acquiring
+      this.lease = await this.acquiring
       this.check(); state('starting')
-      const server = await readFile(resolveResources('android/scrcpy-server'))
+      const server = await this.startupStep(() => readFile(resolveResources('android/scrcpy-server')))
       this.check()
-      // Each device has its own ADB transport and server process/socket namespace.
-      const serverPath = '/data/local/tmp/scrcpy-plus-server.jar'
-      await deadline(AdbScrcpyClient.pushServer(adb, new ReadableStream({
+      const adb = this.mirrorAdb = new AndroidMirrorAdb(this.lease.adb, this.lifetime.signal)
+      const scid = randomInt(0x80000000).toString(16)
+      const serverPath = this.pendingServerPath = `/data/local/tmp/scrcpy-plus-server-${scid}.jar`
+      await this.startupStep(() => AdbScrcpyClient.pushServer(adb, new ReadableStream({
         start(controller) { controller.enqueue(server); controller.close() },
-      }), serverPath), () => { void this.close().catch(() => {}) })
+      }), serverPath))
       this.check()
-      this.client = await deadline(AdbScrcpyClient.start(adb, serverPath,
-        new AdbScrcpyOptions3_3_3({ video: true, audio: false, control: true,
+      this.client = await this.startupStep(() => AdbScrcpyClient.start(adb, serverPath,
+        new AdbScrcpyOptions3_3_3({ scid, video: true, audio: false, control: true,
           videoCodec: 'h264', maxSize: 1920, maxFps: 60, tunnelForward: true })).then(async client => {
+        // The metadata read starts in Tango's constructor, including for a
+        // late client returned while its sockets are being closed.
+        void client.videoStream.catch(() => {})
         if (this.closed) { await client.close(); this.check() }
         return client
-      }),
-      () => { void this.close().catch(() => {}) })
+      }))
       this.check()
       const client = this.client
       void client.output.pipeTo(new WritableStream({ write() {} })).catch(() => {})
       if (client.clipboard) void client.clipboard.pipeTo(new WritableStream({ write() {} })).catch(() => {})
-      const video = await deadline(client.videoStream, () => { void this.close().catch(() => {}) }); this.check()
+      const video = await this.startupStep(() => client.videoStream); this.check()
+      this.pendingServerPath = undefined // The running scrcpy server unlinks its JAR.
       state('connected')
       void (async () => {
         try {
@@ -449,13 +485,21 @@ export class AndroidMirror {
     this.closed = true
     this.closing = (async () => {
       this.lifetime.abort(new Error('Android session closed'))
-      // Kill the phone server while its ADB transport is still writable.
-      // Concurrent native close calls can violate node-usb's borrow rules.
-      await deadline(Promise.resolve().then(() => this.client?.close()), () => {}, 2000).catch(() => {})
+      // Close partial startup sockets even before Tango returns a server client.
+      let closeError: unknown
+      try {
+        await deadline(Promise.all([this.client?.close(), this.mirrorAdb?.close()]), () => {}, 2000)
+      } catch (error) { closeError = error }
+      if (this.pendingServerPath && this.lease) {
+        await readAndroidShellOutput(this.lease.adb, `rm -f ${this.pendingServerPath}`, 4096, 1500)
+          .then(() => { this.pendingServerPath = undefined },
+            error => console.warn('Could not remove Android mirror server', error))
+      }
       // Dropped packages clean up their device-side staging files over this lease.
       await Promise.allSettled(this.installs)
       const lease = this.lease || await this.acquiring?.catch(() => undefined)
       await lease?.release()
+      if (closeError && this.mirrorAdb?.hasOpenSockets) throw closeError
     })().catch(error => { this.closing = undefined; throw error })
     return this.closing
   }
