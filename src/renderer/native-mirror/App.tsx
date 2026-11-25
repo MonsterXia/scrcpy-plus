@@ -38,6 +38,7 @@ function statusLabel(state: string, issue?: MirrorSession['connectionIssue'], wa
 }
 export default observer(function App() {
   const canvas = useRef<HTMLCanvasElement>(null)
+  const toolsToggle = useRef<HTMLButtonElement>(null)
   const presented = useRef(false)
   const [info, setInfo] = useState<NativeMirrorInfo>()
   const [status, setStatus] = useState<MirrorSession['state']>('starting')
@@ -247,13 +248,15 @@ export default observer(function App() {
       <span>{t('plusNativeInputError')}</span>
       <button className={StatusStyle.retryButton} type="button" onClick={() => void reconnect(true)}>{t('plusReconnectControl')}</button>
     </div>}
-    {android && <Toolbar connected={status === 'running'} onKey={keyCode => send({ type: 'key', keyCode })} />}
-    {iosUsb && <Toolbar mode={videoMode} busy={videoBusy} connected={status === 'running'} onVideo={enabled => {
+    {android && <Toolbar toggle={toolsToggle} connected={status === 'running'} onKey={keyCode => send({ type: 'key', keyCode })} />}
+    {iosUsb && <Toolbar toggle={toolsToggle} mode={videoMode} busy={videoBusy} connected={status === 'running'} onVideo={enabled => {
         setVideoBusy(true)
         void main.nativeMirrorVideo(enabled).catch(() => setVideoMode('video-error')).finally(() => setVideoBusy(false))
       }} onHome={() => send({ type: 'key', keyCode: 3 })} onSetup={() => setSetupOpen(true)} />}
     <canvas ref={canvas} width={480} height={800} className={Style.canvas} data-unavailable={status !== 'running'} tabIndex={interactive ? 0 : -1}
       aria-label={t(interactive ? 'plusInteractiveScreen' : 'plusViewOnly')}
+      aria-description={android ? t('plusAndroidToolbarShortcut') : undefined}
+      title={android ? t('plusAndroidToolbarShortcut') : undefined}
       onPointerDown={event => {
         if (!interactive || status !== 'running' || !event.isPrimary || event.button !== 0) return
         const p = point(event); if (!p) return
@@ -274,6 +277,11 @@ export default observer(function App() {
       }}
       onKeyDown={event => {
         if (!interactive || status !== 'running' || event.nativeEvent.isComposing) return
+        if (android && event.key === 'Tab' && event.shiftKey) {
+          event.preventDefault()
+          toolsToggle.current?.focus()
+          return
+        }
         const codes: Record<string, number> = { Home: 3, Enter: 66, Backspace: 67, Escape: 4, ArrowUp: 19, ArrowDown: 20, ArrowLeft: 21, ArrowRight: 22, Tab: 61 }
         if (iosUsb && ['Escape','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(event.key)) return
         if (codes[event.key]) { event.preventDefault(); send({ type: 'key', keyCode: codes[event.key] }) }

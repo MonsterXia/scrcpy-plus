@@ -1,6 +1,6 @@
 import { observer } from 'mobx-react-lite'
 import { createPortal } from 'react-dom'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import ToolbarIcon from 'share/renderer/components/ToolbarIcon'
 import { t } from 'common/util'
 import type { MirrorSession } from 'common/types'
@@ -22,9 +22,9 @@ interface AndroidTools {
   onKey: (keyCode: number) => void
 }
 
-export default observer(function Toolbar(props: IosTools | AndroidTools) {
+export default observer(function Toolbar(props: (IosTools | AndroidTools) & { toggle: RefObject<HTMLButtonElement | null> }) {
   const ios = 'onSetup' in props ? props : undefined
-  const { connected } = props
+  const { connected, toggle } = props
   const busy = ios?.busy ?? false
   const mode = ios?.mode
   const panelId = ios ? 'ios-mirror-tools' : 'android-mirror-tools'
@@ -32,7 +32,6 @@ export default observer(function Toolbar(props: IosTools | AndroidTools) {
   const [expanded, setExpanded] = useState(false)
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
-  const toggle = useRef<HTMLButtonElement>(null)
   const keyboardInteraction = useRef(false)
   useEffect(() => {
     if (!expanded || hovered || focused || busy) return

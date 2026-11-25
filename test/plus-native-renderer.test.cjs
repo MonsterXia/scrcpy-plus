@@ -68,6 +68,21 @@ test('Android mirror toolbar sends device keys only while connected', async t =>
   assert.ok(buttons.every(b => b.disabled))
 })
 
+test('Android canvas forwards Tab to the phone and Shift+Tab focuses the tools button', async t => {
+  const f = await fixture(t)
+  const canvas = f.host.querySelector('canvas')
+  const toggle = document.querySelector('[aria-controls="android-mirror-tools"]')
+  canvas.focus()
+  const tab = shiftKey => canvas.dispatchEvent(new window.KeyboardEvent('keydown', {
+    key: 'Tab', shiftKey, bubbles: true, cancelable: true,
+  }))
+  await act(async () => tab(false))
+  assert.ok(document.activeElement === canvas)
+  await act(async () => tab(true))
+  assert.ok(document.activeElement === toggle)
+  assert.deepEqual(f.inputs.map(input => input.keyCode), [61])
+})
+
 test('native Android canvas maps content coordinates and ignores another pointer during a drag', async t => {
   const f = await fixture(t), canvas = f.host.querySelector('canvas')
   canvas.setPointerCapture = () => {}

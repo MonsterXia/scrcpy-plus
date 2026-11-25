@@ -291,6 +291,7 @@
   "plusNativeError": "Connection failed. Check phone authorization, USB access and built-in resources. Close other debugging apps using the USB interface, then retry.",
   "plusNativeInputError": "Input did not complete. Reconnect to restore control.",
   "plusNativeDecodeError": "Video decoding failed. Waiting for a new keyframe.",
+  "plusAndroidToolbarShortcut": "Press Shift+Tab to focus the mirror tools button.",
   "plusInteractiveScreen": "Phone screen with mouse, touch and keyboard control",
   "plusHome": "Home",
   "plusRecent": "Recent apps",
