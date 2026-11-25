@@ -89,7 +89,8 @@ export class AutomationController {
     const found = await this.options.discover()
     const device = found.targets.find(item => item.key === deviceKey)
     if (!device) throw new AutomationFault(found.errors.length ? 'UNAVAILABLE' : 'NOT_FOUND', 'Device not found')
-    if (device.state === 'offline' || (device.platform === 'harmony' && device.state !== 'ready')) throw new AutomationFault('UNAVAILABLE', 'Device is not ready or needs authorization')
+    if (device.state === 'offline' || (device.platform === 'harmony' && device.state !== 'ready') ||
+      (device.platform === 'android' && device.state && device.state !== 'ready')) throw new AutomationFault('UNAVAILABLE', 'Device is not ready or needs authorization')
     const target = device.platform === 'ios' && device.transport !== 'usb' ? { ...device, key: 'ios:airplay-receiver', name: 'AirPlay', connectionId: undefined, transport: 'receiver' as const } : device
     return this.sessions.start(target, context, () => this.options.open(target, false))
   }

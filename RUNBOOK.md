@@ -6,7 +6,9 @@
 
 已在源码中并行发现直接 USB 与本机已有的 `127.0.0.1:5037` ADB 服务。常规序列号合并去重，两种来源保持 `android:<serial>` 标识，优先按 transport ID 复用服务；服务不可用时回到同一设备的应用内 USB 协议实现；保留未授权／离线状态，服务不存在不影响 USB，服务无响应三秒后关闭自身 socket。不启动、停止或重连外部 ADB 服务。此入口不覆盖 TCP 地址、mDNS、模拟器或自定义 ADB 服务端口。入口职责见[集成说明](docs/scrcpy-plus/integration.md)。
 
-本机 macOS 无真机回归：`npm test` 退出 0，应用测试 1333 通过、2 跳过；Licia 生产与 fallback 各 606 通过、4 pending。后续按用户复现路径补充了鸿蒙拔插切换、优先本机 ADB、服务退出后回退 USB 与设备标识稳定性，Android 定向回归 45 项全部通过；`npm run lint`、最终修改文件 ESLint、`npm run build:main` 和 `git diff --check` 通过。首次全量检查的两个 CLI/MCP 失败来自本地缺少更新后的 MCP 包，按锁文件执行 `npm ci --ignore-scripts --no-audit --no-fund` 后复测通过，依赖清单和锁文件未改。
+本机 macOS 无真机回归：`npm test` 退出 0，应用测试 1342 通过、2 跳过；Licia 生产与 fallback 各 606 通过、4 pending。后续按用户复现路径补充了鸿蒙拔插切换、优先本机 ADB、服务退出后回退 USB 与设备标识稳定性，相关定向回归 61 项全部通过（覆盖外部 ADB 离线记录不覆盖活跃连接及审查修复）；`npm run lint`、最终修改文件 ESLint、`npm run build:main` 和 `git diff --check` 通过。首次全量检查的两个 CLI/MCP 失败来自本地缺少更新后的 MCP 包，按锁文件执行 `npm ci --ignore-scripts --no-audit --no-fund` 后复测通过，依赖清单和锁文件未改。
+
+独立审查确认并修复外部 ADB 状态覆盖活跃 USB、重复序列号及 Android 自动化启动状态检查；已补充 socket 关闭、超时上限和真实 Tango 正向视频／控制通道验证。异常 ADB 查询写入诊断，未运行的可选服务保持安静。最终 CI、审查和合入状态见 [PR #109](https://github.com/MonsterXia/scrcpy-plus/pull/109)。
 
 下一步：构建包含本次修复的 Windows 安装包，在用户 Windows 电脑保持 ADB／Android Studio 可识别手机时，验证刷新列表、单次显示设备、投屏触控及拔插恢复。尚未构建 Windows 新包，也未完成 Windows 真机验收，不将源码检查当作现场根因已证实。
 

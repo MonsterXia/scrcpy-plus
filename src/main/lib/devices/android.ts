@@ -132,16 +132,30 @@ async function usbDevices() {
 }
 export async function discoverAndroid(): Promise<ITarget[]> {
   const [usb, local] = await Promise.allSettled([usbDevices(), discoverLocalAdb()])
-  const shared = local.status === 'fulfilled' ? local.value : []
+  if (local.status === 'rejected' && (local.reason as NodeJS.ErrnoException)?.code !== 'ECONNREFUSED') {
+    console.warn('Local ADB discovery failed', local.reason)
+  }
+  const bySerial = new Map<string, Awaited<ReturnType<typeof discoverLocalAdb>>[number]>()
+  const ambiguous = new Set<string>()
+  for (const device of local.status === 'fulfilled' ? local.value : []) {
+    if (bySerial.has(device.serial)) ambiguous.add(device.serial)
+    else bySerial.set(device.serial, device)
+  }
+  const shared = Array.from(bySerial.values())
+  const native = usb.status === 'fulfilled' ? usb.value : []
   if (usb.status === 'rejected' && !shared.length) throw usb.reason
   const targets: ITarget[] = shared.map(device => ({
     key: `android:${device.serial}`, connectionId: device.serial,
     name: device.model || device.serial, model: device.model,
     platform: 'android', transport: 'usb',
-    state: device.state === 'device' ? 'ready' : device.state as 'unauthorized' | 'offline',
+    // An external server can report offline because our direct transport owns USB.
+    state: connections.get(`android:${device.serial}`)?.connected ? 'ready'
+      : ambiguous.has(device.serial) ? 'unavailable'
+        : device.state === 'device' || native.some(item => usbIdentity(item) === device.serial)
+          ? 'ready' : device.state as 'unauthorized' | 'offline',
     ohosVersion: '', sdkVersion: '',
   }))
-  for (const device of usb.status === 'fulfilled' ? usb.value : []) {
+  for (const device of native) {
     if (shared.some(item => item.serial === device.serial)) continue
     targets.push({
       key: `android:${usbIdentity(device)}`, connectionId: usbIdentity(device), name: device.name || device.serial,
@@ -249,6 +263,7 @@ class AndroidConnection {
   private closing?: Promise<void>
   private installTail = Promise.resolve()
   users = 0
+  get connected() { return !!this.adb && !this.closed }
   closed = false
   constructor(private key: string) {}
   private check() { if (this.closed) throw new Error('Android connection closed') }
@@ -270,8 +285,9 @@ class AndroidConnection {
       }
       const devices = await usbDevices()
       this.check()
-      this.device = devices.find(device => usbIdentity(device) === this.key.slice(8))
-      if (!this.device) throw new Error('Android device disconnected')
+      const matching = devices.filter(device => usbIdentity(device) === serial)
+      if (matching.length !== 1) throw new Error('Android device disconnected or ambiguous')
+      this.device = matching[0]
       configureAndroidUsb(this.device.raw)
       this.check()
       const opening = this.device.connect().then(async connection => {

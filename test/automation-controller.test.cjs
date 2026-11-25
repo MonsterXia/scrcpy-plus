@@ -76,3 +76,11 @@ test('transport recovery waits for a fresh presentation and never revives a stop
  assert.equal(f.controller.sessions.get(a.sessionId).state,'stopping')
  await f.controller.sessions.release(a.sessionId,a.leaseId,ctx())
 })
+
+for (const state of ['unauthorized', 'offline', 'unavailable']) test(`Android ${state} automation start is rejected before opening a session`, async () => {
+ const {AutomationController}=load('src/main/automation/controller.ts')
+ let opened=false
+ const controller=new AutomationController({instanceId:'test',ipc:{handle(){}},discover:async()=>({targets:[{...target,state}],errors:[]}),open:async()=>{opened=true}})
+ await assert.rejects(controller.start(target.key,ctx()),{code:'UNAVAILABLE'})
+ assert.equal(opened,false)
+})
