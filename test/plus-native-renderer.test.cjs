@@ -73,13 +73,22 @@ test('Android canvas forwards Tab to the phone and Shift+Tab focuses the tools b
   const canvas = f.host.querySelector('canvas')
   const toggle = document.querySelector('[aria-controls="android-mirror-tools"]')
   canvas.focus()
-  const tab = shiftKey => canvas.dispatchEvent(new window.KeyboardEvent('keydown', {
-    key: 'Tab', shiftKey, bubbles: true, cancelable: true,
-  }))
-  await act(async () => tab(false))
+  const pressTab = shiftKey => {
+    const event = new window.KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true })
+    canvas.dispatchEvent(event)
+    return event.defaultPrevented
+  }
+  await act(async () => assert.equal(pressTab(false), true))
   assert.ok(document.activeElement === canvas)
-  await act(async () => tab(true))
+  await act(async () => assert.equal(pressTab(true), true))
   assert.ok(document.activeElement === toggle)
+  for (const state of ['starting', 'disconnected']) {
+    await act(async () => f.listeners.get('nativeMirrorState')({ id: 'owned-session', state }))
+    canvas.focus()
+    await act(async () => assert.equal(pressTab(false), false))
+    await act(async () => assert.equal(pressTab(true), true))
+    assert.ok(document.activeElement === toggle)
+  }
   assert.deepEqual(f.inputs.map(input => input.keyCode), [61])
 })
 

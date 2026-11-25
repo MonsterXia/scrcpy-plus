@@ -276,12 +276,13 @@ export default observer(function App() {
         event.preventDefault(); send({ type: 'scroll', ...p, dx: Math.max(-1, Math.min(1, -event.deltaX / 100)), dy: Math.max(-1, Math.min(1, -event.deltaY / 100)) })
       }}
       onKeyDown={event => {
-        if (!interactive || status !== 'running' || event.nativeEvent.isComposing) return
+        if (!interactive || event.nativeEvent.isComposing) return
         if (android && event.key === 'Tab' && event.shiftKey) {
           event.preventDefault()
           toolsToggle.current?.focus()
           return
         }
+        if (status !== 'running') return
         const codes: Record<string, number> = { Home: 3, Enter: 66, Backspace: 67, Escape: 4, ArrowUp: 19, ArrowDown: 20, ArrowLeft: 21, ArrowRight: 22, Tab: 61 }
         if (iosUsb && ['Escape','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(event.key)) return
         if (codes[event.key]) { event.preventDefault(); send({ type: 'key', keyCode: codes[event.key] }) }
