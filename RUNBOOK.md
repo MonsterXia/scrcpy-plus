@@ -2,7 +2,7 @@
 
 ## 1.0.5-dev.4 开发预发布规划（2026-11-25）
 
-已核对 dev.3 至 master `83270de` 的变更、当前公开版本及双平台发行流程。已准备版本 PR 的源码与双语候选说明；发布构建、签名及公开验收待执行。见[开发预发布计划](docs/superpowers/plans/2026-11-25-release-1.0.5-dev.4.md)。
+已核对 dev.3 至 master `83270de` 的变更、当前公开版本及双平台发行流程。[dev.4](https://github.com/MonsterXia/scrcpy-plus/releases/tag/v1.0.5-dev.4) 已公开，稳定 Latest 为 v1.0.4。双平台安装启动、Mac 签名与公证、12 附件校验及线上更新源验收均已通过。见[发行证据](docs/releases/1.0.5-dev.4-evidence.json)。见[开发预发布计划](docs/superpowers/plans/2026-11-25-release-1.0.5-dev.4.md)。
 
 ## iPhone USB 从界面启动投屏（2026-11-25）
 
