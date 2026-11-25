@@ -15,8 +15,10 @@ export default function MirrorToolsPanel({ id, expanded, children, footer }: Pro
       aria-hidden={!expanded} inert={!expanded}>
       <LunaToolbar className={Style.container}>
         {children}
-        <LunaToolbarSpace />
-        <div className={Style.details}>{footer}</div>
+        {footer && <>
+          <LunaToolbarSpace />
+          <div className={Style.details}>{footer}</div>
+        </>}
       </LunaToolbar>
     </div>
   )

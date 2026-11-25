@@ -291,6 +291,7 @@
   "plusNativeError": "连接失败。请检查手机授权、USB 访问权限及内置资源，并关闭占用 USB 接口的其他调试程序后重试。",
   "plusNativeInputError": "操作未完成，可重连以恢复控制。",
   "plusNativeDecodeError": "画面解码失败，正在等待新的关键帧。",
+  "plusAndroidToolbarShortcut": "按 Shift+Tab 将焦点移至投屏工具按钮。",
   "plusInteractiveScreen": "手机画面，可点击和拖动，支持键盘操作",
   "plusHome": "主屏幕",
   "plusRecent": "最近任务",

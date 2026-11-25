@@ -180,7 +180,7 @@ Canvas pointer 事件
 - 客户端用局部队列合并缩放，主进程提供跨 renderer 的设备顺序；帧须同时匹配 sessionId 与启动 generation。本次启动未出图或创建/start 拒绝后五秒重试，`ready` 只代表首次成功绘制。`destroy(): void` 清除重试、退订帧/指针监听、取消图片加载，并立即发送 session stop 以便主进程本地失效；创建回复迟到时也释放 token。不能撤销已发送的设备请求，永不返回时仍不能确认远端停止。
 - `loadImage(url, signal?)` 清理图片处理器并支持取消；客户端在 finally 中释放 Blob URL。无设备生命周期回归见 `test/screencast-lifecycle.test.cjs`，真实捕获和原应用问题的验收边界见 `docs/maintenance/M2-3-recovery.md`。
 - `src/renderer/screencast/components/Screencast.tsx` 等首帧 ready 后挂载 Canvas，并处理拖入 HAP；`lib/fitWindow.ts` 观察实际帧比例和容器尺寸，首帧/比例变化时通过 preload 的 `fitScreencast` 报告尺寸及实测窗口界面占用。主进程 `window/screencast.ts` 只接受当前投屏主文档，按当前窗口面积、画面比例和显示器可用 DIP 空间调整窗口；最大化/全屏保持不动。相同比例的帧、分辨率档位和普通手动缩放不反复调整窗口。Canvas 的 CSS 尺寸始终按比例计算，低分辨率画面也可填满适配后的窗口，触摸仍使用真实画面矩形。卸载时取消尺寸观察与待执行回调。同目录的 `Toolbar.tsx` 提供缩放、按键、PNG 导出、置顶和全屏；文本输入由画面键盘与粘贴处理。
-- 鸿蒙和 USB iPhone 投屏共用双滑杆按钮和工具面板。按钮通过 React portal 挂到 body，常驻标题栏。独立窗口在 macOS 靠右、Windows 靠左，距边缘 8 个逻辑像素；合并窗口的按钮靠各自分栏右侧。面板在按钮下方同侧展开，浮层空白处允许画面输入。Tab 可进入面板，Escape 收起并将焦点还给入口。鼠标离开工具区 2 秒后自动收起面板，键盘操作或编辑选择框期间暂停计时。
+- Android、鸿蒙和 USB iPhone 投屏共用双滑杆按钮和工具面板。Android 的返回、主界面、音量加减复用 nativeMirrorInput，仅在已连接时启用。按钮通过 React portal 挂到 body，常驻标题栏。独立窗口在 macOS 靠右、Windows 靠左，距边缘 8 个逻辑像素；合并窗口的按钮靠各自分栏右侧。面板在按钮下方同侧展开，浮层空白处允许画面输入。Tab 可进入面板，Escape 收起并将焦点还给入口。鼠标离开工具区 2 秒后自动收起面板，键盘操作或编辑选择框期间暂停计时。
 - 工具面板使用 160ms opacity 过渡；面板收起时立即设 inert/aria-hidden 并禁用指针，淡出结束后 CSS visibility 隐藏，不用 display:none 截断动画。快速反向切换由 CSS 接续当前透明度，减少动态效果偏好下取消过渡。
 - 画质只提供原画（scale=1）和流畅（scale=0.5），不承诺固定FPS；选择框保留原生语义，使用可样式化picker统一毛玻璃外观。screencast/store.ts在初始化捕获前按原生整数缩放档位兼容旧比例（0.5/0.6→0.5，0.7～1→1），非法值默认原画；切换只保存规范值，同档位不重启。
 - ScreencastClient.getCaptureStats返回当前generation的成功Canvas绘制计数和实际格式，start/destroy清空。Toolbar仅展开时按1秒interval与performance.now差值计算FPS，generation改变/未出帧显示等待或破折号，无新增帧归零；收起/卸载清理interval。它不是编码目标或显示器呈现速率，无额外设备采集/IPC或逐帧React更新。状态和画质成组换行，控件统一28px垂直居中；选择框禁用Luna旧三角，仅使用单个可样式化picker箭头。
@@ -254,6 +254,8 @@ iPhone 设置的 Apple 登录由 `src/main/lib/ios-provisioning/manager.ts` 维�
 Android、USB iOS 和 AirPlay 共用的 `native-mirror` 窗口显式启用 Electron 的 `webSecurity`，以便本地页面使用 WebCodecs 解码 H.264。
 
 USB iOS 的 `ios:<UDID>` 与 `ios:airplay-receiver` 分开。`ios-usbmux.connectIos` 每次用 UDID 查找当前 USB DeviceID，返回暂停且保留尾随数据的 socket。`ios-wda.WdaClient` 用独立 USB socket 发送有界 HTTP 请求，不重试写入；`ios.IosMirror` 管理专用 WDA session、PNG 预览与逻辑点输入；`ios-video.IosVideo` 管理自有 capture ID 和 scrcpy H.264 数据流，不停止全局广播。
+
+USB iOS 设备助手 `native/ios-device/device.py` 默认通过 lockdown 挂载开发者镜像。若设备要求 RSD（如 iOS 27），助手复用启动 Runner 的 USB 用户态隧道完成挂载，再进入启动阶段。
 
 `NativeMirrors` 新建 USB iOS 会话默认请求视频；首张 PNG 建立几何后通过共享输入队列开启 ReplayKit。同一窗口重连保留用户模式选择，默认视频失败仅在后端确认清理完成且恢复 PNG 后保留截图回退。
 

@@ -1,6 +1,6 @@
 import { observer } from 'mobx-react-lite'
 import { createPortal } from 'react-dom'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import ToolbarIcon from 'share/renderer/components/ToolbarIcon'
 import { t } from 'common/util'
 import type { MirrorSession } from 'common/types'
@@ -8,7 +8,7 @@ import FloatingStyle from '../screencast/components/Toolbar.module.scss'
 import MirrorToolsPanel, { MirrorToolsSelect } from '../screencast/components/MirrorToolsPanel'
 import ToolbarToggle from '../screencast/components/ToolbarToggle'
 
-interface Props {
+interface IosTools {
   mode: MirrorSession['videoMode']
   busy: boolean
   connected: boolean
@@ -17,12 +17,21 @@ interface Props {
   onSetup: () => void
 }
 
-export default observer(function Toolbar({ mode, busy, connected, onVideo, onHome, onSetup }: Props) {
+interface AndroidTools {
+  connected: boolean
+  onKey: (keyCode: number) => void
+}
+
+export default observer(function Toolbar(props: (IosTools | AndroidTools) & { toggle: RefObject<HTMLButtonElement | null> }) {
+  const ios = 'onSetup' in props ? props : undefined
+  const { connected, toggle } = props
+  const busy = ios?.busy ?? false
+  const mode = ios?.mode
+  const panelId = ios ? 'ios-mirror-tools' : 'android-mirror-tools'
   const transitioning = busy || mode === 'video-starting'
   const [expanded, setExpanded] = useState(false)
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
-  const toggle = useRef<HTMLButtonElement>(null)
   const keyboardInteraction = useRef(false)
   useEffect(() => {
     if (!expanded || hovered || focused || busy) return
@@ -44,9 +53,9 @@ export default observer(function Toolbar({ mode, busy, connected, onVideo, onHom
     }}>
     {createPortal(<div className={FloatingStyle.entry}>
       <ToolbarToggle ref={toggle} expanded={expanded}
-        controls="ios-mirror-tools" onClick={() => setExpanded(!expanded)} />
+        controls={panelId} onClick={() => setExpanded(!expanded)} />
     </div>, document.body)}
-    <MirrorToolsPanel id="ios-mirror-tools" expanded={expanded} footer={<>
+    <MirrorToolsPanel id={panelId} expanded={expanded} footer={ios && <>
       <span className={FloatingStyle.status} role="status"
         title={t(mode === 'video' ? 'plusIosVideoMode' : 'plusIosScreenshotMode')}>
         {transitioning ? t('plusSessionStarting') : mode === 'video' ? 'ReplayKit' : 'WDA'}
@@ -54,7 +63,7 @@ export default observer(function Toolbar({ mode, busy, connected, onVideo, onHom
       <MirrorToolsSelect label={t('plusIosMirrorMode')} disabled={transitioning || !connected}
         value={mode === 'video-starting' ? 'video' : mode || 'screenshot'}
         onChange={event => {
-          onVideo(event.currentTarget.value === 'video')
+          ios.onVideo(event.currentTarget.value === 'video')
           if (!keyboardInteraction.current) setFocused(false)
         }}>
         {mode === 'video-error' && <option value="video-error" disabled>{t('plusIosChooseMode')}</option>}
@@ -64,12 +73,20 @@ export default observer(function Toolbar({ mode, busy, connected, onVideo, onHom
       {mode === 'video-error' && <p className={FloatingStyle.modeHint} role="alert">{t('plusIosVideoFailed')}</p>}
       {mode === 'screenshot' && <p className={FloatingStyle.modeHint}>{t('plusIosBroadcastHint')}</p>}
     </>}>
-      <ToolbarIcon icon="circle" title={t('plusIosHome')} disabled={transitioning || !connected} onClick={onHome} />
-      <ToolbarIcon icon="setting" title={t('iosSetupTitle')} onClick={() => {
-        toggle.current?.focus()
-        setExpanded(false)
-        onSetup()
-      }} />
+      {ios && <>
+        <ToolbarIcon icon="circle" title={t('plusIosHome')} disabled={transitioning || !connected} onClick={ios.onHome} />
+        <ToolbarIcon icon="setting" title={t('iosSetupTitle')} onClick={() => {
+          toggle.current?.focus()
+          setExpanded(false)
+          ios.onSetup()
+        }} />
+      </>}
+      {'onKey' in props && <>
+        <ToolbarIcon icon="back" title={t('back')} disabled={!connected} onClick={() => props.onKey(4)} />
+        <ToolbarIcon icon="circle" title={t('home')} disabled={!connected} onClick={() => props.onKey(3)} />
+        <ToolbarIcon icon="volume" title={t('volumeUp')} disabled={!connected} onClick={() => props.onKey(24)} />
+        <ToolbarIcon icon="volume-down" title={t('volumeDown')} disabled={!connected} onClick={() => props.onKey(25)} />
+      </>}
     </MirrorToolsPanel>
   </div>
 })
