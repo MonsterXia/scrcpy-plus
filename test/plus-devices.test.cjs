@@ -52,7 +52,7 @@ function androidFixture(directory, filesystem = fs.promises, localAdb = async ()
   const clients = [], authentications = []
   const api = load('src/main/lib/devices/android.ts', {
     './androidShell': load('src/main/lib/devices/androidShell.ts'),
-    './androidServer': { connectLocalAdb: localAdb },
+    './androidServer': { connectLocalAdb: localAdb, discoverLocalAdb: async () => [] },
     './androidOverview': { readAndroidOverview: async adb => ({ name: adb.serial }) },
     'node:fs/promises': filesystem,
     '@yume-chan/adb': {
@@ -486,19 +486,27 @@ test('overview IPC routes a USB iPhone to its metadata reader without invoking H
 })
 
 
-test('Android USB access failure reuses only the exact local ADB device after closing its USB handle',async t=>{
- let selected,closed=false
- const f=androidFixture(directory(t),fs.promises,async serial=>{assert.equal(closed,true);selected=serial;return {serial,close:async()=>{}}})
- const device=f.devices[0];device.raw.serialNumber='a';device.raw.close=async()=>{closed=true}
- device.connect=async()=>{throw Error('claimInterface error: LIBUSB_ERROR_ACCESS')}
- const [target]=await f.discoverAndroid()
- assert.equal((await f.getAndroidOverview(target)).name,'a');assert.equal(selected,'a');assert.equal(f.authentications.length,0)
+test('Android prefers the exact local ADB device before opening any USB handle', async t => {
+  let selected
+  const f = androidFixture(directory(t), fs.promises, async serial => {
+    assert.equal(f.devices[0].connects, 0)
+    assert.equal(f.devices[0].closes, 0)
+    selected = serial
+    return { serial, close: async () => {} }
+  })
+  const [target] = await f.discoverAndroid()
+  assert.equal((await f.getAndroidOverview(target)).name, 'a')
+  assert.equal(selected, 'a')
+  assert.equal(f.authentications.length, 0)
+  assert.equal(f.devices[0].connects, 0)
 })
-test('Android does not fall back to another transport after authentication or generic USB failure',async t=>{
- let calls=0
- const f=androidFixture(directory(t),fs.promises,async()=>{calls++;throw Error('unexpected')})
- f.devices[0].raw.serialNumber='a';f.devices[0].connect=async()=>{throw Error('disconnected')}
- const [target]=await f.discoverAndroid();await assert.rejects(f.getAndroidOverview(target),/disconnected/);assert.equal(calls,0)
+test('Android tries local ADB once and propagates subsequent native USB failure', async t => {
+  let calls = 0
+  const f = androidFixture(directory(t), fs.promises, async () => { calls++; throw Error('ECONNREFUSED') })
+  f.devices[0].connect = async () => { throw Error('disconnected') }
+  const [target] = await f.discoverAndroid()
+  await assert.rejects(f.getAndroidOverview(target), /disconnected/)
+  assert.equal(calls, 1)
 })
 
 test('APK uploads are streamed and installed in drop order, with cleanup and recovery after failure', async t => {
@@ -671,4 +679,136 @@ test('Android workspace tools and mirroring share one USB claim until the last u
   assert.equal(f.devices[0].closes, 1)
   await assert.rejects(f.acquireAndroidAdb('android:missing'), /disconnected/)
   assert.equal(f.devices[1].connects, 0)
+})
+
+
+test('Android discovers and connects server devices missing from direct USB, deduplicating shared serials', async t => {
+  let selected
+  const f = androidFixture(directory(t), fs.promises, undefined, {}, {
+    './androidServer': {
+      discoverLocalAdb: async () => [{ serial: 'a', model: 'Phone', state: 'device' }, { serial: 'windows', state: 'unauthorized' }],
+      connectLocalAdb: async serial => { selected = serial; return { serial, close: async () => {} } },
+    },
+  })
+  const targets = await f.discoverAndroid()
+  assert.deepEqual(Array.from(targets, t => t.key), ['android:a', 'android:windows', 'android:b'])
+  assert.equal(targets[1].state, 'unauthorized')
+  f.devices.splice(0)
+  assert.equal((await f.getAndroidOverview(targets[0])).name, 'a')
+  assert.equal(selected, 'a')
+  assert.equal(f.authentications.length, 0)
+})
+test('Android server discovery survives native USB enumeration failure', async t => {
+  const f = androidFixture(directory(t), fs.promises, undefined, {}, {
+    '@yume-chan/adb-daemon-webusb': { AdbDaemonWebUsbDeviceManager: class { async getDevices() { throw Error('Windows USB unavailable') } } },
+    './androidServer': { discoverLocalAdb: async () => [{ serial: 'windows', state: 'device' }] },
+  })
+  assert.equal((await f.discoverAndroid())[0].key, 'android:windows')
+})
+test('Android direct USB discovery survives an absent local ADB server', async t => {
+  const f = androidFixture(directory(t), fs.promises, undefined, {}, {
+    './androidServer': { discoverLocalAdb: async () => { throw Error('ECONNREFUSED') } },
+  })
+  assert.equal((await f.discoverAndroid()).length, 2)
+})
+
+
+test('Android keeps serial identity when the shared server disappears and falls back to source USB', async t => {
+  let available = true, attempts = 0
+  const f = androidFixture(directory(t), fs.promises, undefined, {}, {
+    './androidServer': {
+      discoverLocalAdb: async () => available ? [{ serial: 'a', state: 'device' }] : [],
+      connectLocalAdb: async () => { attempts++; throw Error('ECONNREFUSED') },
+    },
+  })
+  const [target] = await f.discoverAndroid()
+  available = false
+  assert.equal((await f.discoverAndroid())[0].key, target.key)
+  assert.equal((await f.getAndroidOverview(target)).name, 'a')
+  assert.equal(attempts, 1)
+  assert.equal(f.devices[0].connects, 1)
+  assert.deepEqual(f.authentications, ['a'])
+})
+
+test('switching from Harmony to an Android Studio USB device refreshes providers without restarting', async t => {
+  let phase = 0
+  const f = androidFixture(directory(t), fs.promises, undefined, {}, {
+    './androidServer': {
+      discoverLocalAdb: async () => phase === 2 ? [{ serial: 'windows', model: 'Phone', state: 'device' }] : [],
+      connectLocalAdb: async serial => ({ serial, close: async () => {} }),
+    },
+  })
+  f.devices.splice(0)
+  const { getDevices, startSelected } = load('src/main/lib/devices/index.ts', {
+    electron: { app: {} }, 'share/main/lib/util': {},
+    '../hdc': { getTargets: async () => {
+      if (phase) throw Error('HDC unavailable after unplug')
+      return [{ key: 'harmony-phone', name: 'Harmony' }]
+    } },
+    './android': f,
+    './ios-usbmux': { discoverIos: async () => [] },
+    '../../window/nativeMirror': { nativeMirrors: {
+      list: () => [], reconcileIos() {}, start: async target => assert.equal(target.key, 'android:windows'),
+    } },
+    '../../window/screencast': { listSessions: () => [] },
+  })
+  assert.ok((await getDevices()).targets.some(target => target.platform === 'harmony'))
+  phase = 1
+  assert.ok(!(await getDevices()).targets.some(target => target.platform === 'harmony'))
+  phase = 2
+  const result = await getDevices()
+  assert.deepEqual(Array.from(result.errors), ['harmony'])
+  assert.ok(result.targets.some(target => target.key === 'android:windows'))
+  await startSelected('android:windows')
+  assert.equal((await f.getAndroidOverview(result.targets.find(target => target.key === 'android:windows'))).name, 'windows')
+})
+
+test('an offline entry in an external ADB server cannot retire a live direct USB session', async t => {
+  let shared = []
+  const f = androidFixture(directory(t), fs.promises, undefined, {}, {
+    './androidServer': {
+      discoverLocalAdb: async () => shared,
+      connectLocalAdb: async () => { throw Error('ECONNREFUSED') },
+    },
+  })
+  const [target] = await f.discoverAndroid()
+  const lease = await f.acquireAndroidAdb(target.key)
+  t.after(() => lease.release())
+  shared = [{ serial: 'a', state: 'offline' }]
+  const current = (await f.discoverAndroid()).find(item => item.key === target.key)
+  assert.equal(current.state, 'ready')
+  assert.equal(f.devices[0].connects, 1)
+})
+
+for (const state of ['offline', 'unauthorized']) test(`direct USB remains selectable when server reports ${state}`, async t => {
+  const f = androidFixture(directory(t), fs.promises, undefined, {}, {
+    './androidServer': { discoverLocalAdb: async () => [{ serial: 'a', state }], connectLocalAdb: async () => { throw Error('unavailable') } },
+  })
+  const target = (await f.discoverAndroid()).find(t => t.key === 'android:a')
+  assert.equal(target.state, 'ready')
+  assert.equal((await f.getAndroidOverview(target)).name, 'a')
+  assert.equal(f.devices[0].connects, 1)
+})
+test('ambiguous server serials have one unavailable target and native USB cannot select arbitrary duplicates', async t => {
+  const f = androidFixture(directory(t), fs.promises, undefined, {}, {
+    './androidServer': { discoverLocalAdb: async () => [{ serial: 'a', state: 'device' }, { serial: 'a', state: 'device' }], connectLocalAdb: async () => { throw Error('ambiguous') } },
+  })
+  f.devices[1].serial = 'a'
+  const targets = await f.discoverAndroid()
+  assert.equal(targets.length, 1)
+  assert.equal(targets[0].state, 'unavailable')
+  await assert.rejects(f.getAndroidOverview(targets[0]), /ambiguous/)
+  assert.ok(f.devices.every(device => !device.connects))
+})
+test('ADB discovery failures are diagnostic while a missing optional server is quiet', async t => {
+  const warnings = []
+  let refused = false
+  const f = androidFixture(directory(t), fs.promises, undefined, { console: { ...console, warn: (...args) => warnings.push(args) } }, {
+    './androidServer': { discoverLocalAdb: async () => { throw Object.assign(Error('failure'), { code: refused ? 'ECONNREFUSED' : 'EPROTO' }) } },
+  })
+  assert.equal((await f.discoverAndroid()).length, 2)
+  assert.equal(warnings.length, 1)
+  refused = true
+  await f.discoverAndroid()
+  assert.equal(warnings.length, 1)
 })

@@ -1,5 +1,17 @@
 # Scrcpy Plus 跨平台改造（2026-11-03）
 
+## Windows Android 已被 ADB 识别但应用不显示（2026-11-25）
+
+用户报告先连接并发现鸿蒙、拔出鸿蒙再接安卓后，Windows 上 ADB／Android Studio 可识别手机，而应用设备列表没有该设备。基于 master `63e44b9` 的源码检查确认：原发现入口只查询直接 USB，本机 ADB 兼容只在已经枚举到 USB 设备、连接返回 ACCESS/BUSY 时触发，无法补齐 USB 枚举缺失的设备。
+
+已在源码中并行发现直接 USB 与本机已有的 `127.0.0.1:5037` ADB 服务。常规序列号合并去重，两种来源保持 `android:<serial>` 标识，优先按 transport ID 复用服务；服务不可用时回到同一设备的应用内 USB 协议实现；保留未授权／离线状态，服务不存在不影响 USB，服务无响应三秒后关闭自身 socket。不启动、停止或重连外部 ADB 服务。此入口不覆盖 TCP 地址、mDNS、模拟器或自定义 ADB 服务端口。入口职责见[集成说明](docs/scrcpy-plus/integration.md)。
+
+本机 macOS 无真机回归：`npm test` 退出 0，应用测试 1342 通过、2 跳过；Licia 生产与 fallback 各 606 通过、4 pending。后续按用户复现路径补充了鸿蒙拔插切换、优先本机 ADB、服务退出后回退 USB 与设备标识稳定性，相关定向回归 61 项全部通过（覆盖外部 ADB 离线记录不覆盖活跃连接及审查修复）；`npm run lint`、最终修改文件 ESLint、`npm run build:main` 和 `git diff --check` 通过。首次全量检查的两个 CLI/MCP 失败来自本地缺少更新后的 MCP 包，按锁文件执行 `npm ci --ignore-scripts --no-audit --no-fund` 后复测通过，依赖清单和锁文件未改。
+
+独立审查确认并修复外部 ADB 状态覆盖活跃 USB、重复序列号及 Android 自动化启动状态检查；已补充 socket 关闭、超时上限和真实 Tango 正向视频／控制通道验证。异常 ADB 查询写入诊断，未运行的可选服务保持安静。最终 CI、审查和合入状态见 [PR #109](https://github.com/MonsterXia/scrcpy-plus/pull/109)。
+
+下一步：构建包含本次修复的 Windows 安装包，在用户 Windows 电脑保持 ADB／Android Studio 可识别手机时，验证刷新列表、单次显示设备、投屏触控及拔插恢复。尚未构建 Windows 新包，也未完成 Windows 真机验收，不将源码检查当作现场根因已证实。
+
 ## 1.0.5-dev.4 开发预发布规划（2026-11-25）
 
 已核对 dev.3 至 master `83270de` 的变更、当前公开版本及双平台发行流程。[dev.4](https://github.com/MonsterXia/scrcpy-plus/releases/tag/v1.0.5-dev.4) 已公开，稳定 Latest 为 v1.0.4。双平台安装启动、Mac 签名与公证、12 附件校验及线上更新源验收均已通过。见[发行证据](docs/releases/1.0.5-dev.4-evidence.json)。见[开发预发布计划](docs/superpowers/plans/2026-11-25-release-1.0.5-dev.4.md)。

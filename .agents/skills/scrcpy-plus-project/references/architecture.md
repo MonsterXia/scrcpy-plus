@@ -241,7 +241,7 @@ Android Shell 绑定会话后通过 `android:resizeShell` 同步 xterm 的行列
 
 Android 投屏通过独立的 scrcpy 会话 ID 和临时 JAR 路径启动。`AndroidMirrorAdb` 跟踪本次上传、服务进程、视频和控制连接的 ADB socket。关闭窗口或启动超时时会关闭这些 socket，迟到的打开结果也会关闭，工作区持有的连接可继续使用。
 
-原生投屏失败的 `MirrorSession/NativeMirrorInfo.connectionIssue` 为固定分类，不承载原始异常：Android ACCESS/BUSY通过nativeMirrorState/info IPC给renderer双语提示；重试/恢复清除。直接 USB 仍由后端独占，不自动 detach 其他 ADB；认证前 ACCESS/BUSY 可经 `devices/androidServer.ts` 复用已运行的本机 ADB，按 USB 序列号匹配并固定 transport ID，关闭只回收自己的 socket。共享window.ts的延迟位置保存及ready兜底必须先核对窗口存活。真实Codex宿主探针为 `script/check-automation-codex.mjs`，其结果与SDK模拟测试分开。
+原生投屏失败的 `MirrorSession/NativeMirrorInfo.connectionIssue` 为固定分类，不承载原始异常：Android ACCESS/BUSY通过nativeMirrorState/info IPC给renderer双语提示；重试/恢复清除。直接 USB 仍由后端独占，不自动 detach 其他 ADB；有常规序列号时先经 `devices/androidServer.ts` 尝试复用已运行的本机 ADB，按序列号匹配并固定 transport ID，关闭只回收自己的 socket；服务不可用时才枚举并连接同一设备的原生 USB，开始 USB 认证／写入后不换通道。发现入口并行查询直接 USB 与本机 5037 服务，服务中的常规序列号去重后使用与直接 USB 一致的 `android:<serial>` 标识，连接不再要求先取得 USB 描述符；服务不可用不影响直接 USB 设备，查询三秒超时。共享window.ts的延迟位置保存及ready兜底必须先核对窗口存活。真实Codex宿主探针为 `script/check-automation-codex.mjs`，其结果与SDK模拟测试分开。
 
 合并投屏由 `main/window/mergedMirrors.ts` 把各独立窗口原有的 `mirrorView` 移入同一个 BrowserWindow，并按设备比例与 44 个逻辑像素的可见标题高度设置 bounds。macOS 将各视图顶边向上移 28 个逻辑像素，文档内部等量下移标题和按钮，AppKit 的标题栏命中区域落在可见内容外；HTML 全屏时视图填满宿主。独立与合并始终使用同一个 WebContents 绑定会话、解码、工具栏和输入队列。新建镜像时由 `main/window/mirrorTitle.ts` 根据设备名、型号和系统分配唯一标题，独立窗口使用 `MirrorTarget.mirrorTitle`，合并分栏使用 `MirrorSource.heading` 的设备名和型号／系统两行，主进程将标题高度一并发给视图。拆分时将视图挂回各自窗口并恢复标题与尺寸，批量显示后仅激活一个窗口。独立窗口的焦点通知只同步界面状态，避免再次激活镜像文档而争抢焦点。原生菜单回调发回打开菜单的文档，菜单坐标包含设备视图在宿主窗口内的偏移。
 
