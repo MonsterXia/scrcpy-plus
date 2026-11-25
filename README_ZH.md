@@ -14,6 +14,10 @@ Scrcpy Plus 作为本项目的正式延续，仓库已迁移至 `MonsterXia/scrc
 
 开发版自动化已提供共享本地服务、独立 Node CLI 与 [MCP stdio](docs/scrcpy-plus/automation/mcp.md)，支持会话、截图、输入、投屏窗口布局、Android 与 Harmony 工作区工具，以及 USB iOS 概览。参见[使用指南](docs/scrcpy-plus/automation/README.md)与 [Agent skill](.agents/skills/scrcpy-plus-automation/SKILL.md)。本机模拟流程通过，真机自动化及 Windows 自动化端到端验收仍待完成。
 
+## 1.0.5-dev.4 发布候选
+
+本次新增七项 Android 工作区工具、可通过键盘访问的投屏工具栏，并改进 USB iPhone 的连接恢复。独立 CLI 和 MCP 客户端支持 40 项操作。见[候选说明](docs/releases/1.0.5-dev.4.md)。
+
 ## 1.0.5-dev.3 开发预发布
 
 **[Scrcpy Plus 1.0.5-dev.3 已公开](https://github.com/MonsterXia/scrcpy-plus/releases/tag/v1.0.5-dev.3)**：包含应用内 iPhone 准备与 WDA 续签、iOS 重连修复、Plus 自适应图标、公共弹窗及迁移后的 Plus 更新源。Mac arm64 发行包已通过 Developer ID 签名、Apple 公证及 Gatekeeper 校验，Windows x64 仍未签名。当前验证与设备限制见[发行记录](docs/releases/1.0.5-dev.3.md)。稳定 Latest 保持 1.0.4。
