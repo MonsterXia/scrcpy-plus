@@ -49,7 +49,10 @@ export const androidTools: TargetTools = {
   'overview.get': (_p, c, target) => waitForRead(c, () => getAndroidOverview(target)),
   'apps.list': (p, c, target) => waitForRead(c, () => androidGetBundles(target.key, p.userOnly !== true)),
   'apps.info': async (p, c, target) => {
-    const [info] = await waitForRead(c, () => androidGetBundleInfos(target.key, [packageName(p.bundle)]))
+    const reader = new AbortController()
+    const signal = AbortSignal.any([c.signal, reader.signal])
+    const [info] = await waitForRead(c, () => androidGetBundleInfos(target.key, [packageName(p.bundle)], signal))
+      .finally(() => reader.abort())
     if (!info) throw new AutomationFault('UNAVAILABLE', 'Application metadata is unavailable')
     return info
   },

@@ -154,7 +154,10 @@ export async function acquireAndroidAdb(key: string, signal?: AbortSignal) {
   if (typeof key !== 'string' || !key.startsWith('android:') || key.length <= 8) throw Error('Invalid Android device')
   let connection = connections.get(key)
   while (connection?.closed) {
-    await connection.close()
+    const timeout = AbortSignal.timeout(30000)
+    const wait = signal ? AbortSignal.any([signal, timeout]) : timeout
+    const retiring = connection
+    await waitForAndroidOperation(wait, () => retiring.retire())
     signal?.throwIfAborted()
     connection = connections.get(key)
   }
@@ -178,9 +181,9 @@ export async function acquireAndroidAdb(key: string, signal?: AbortSignal) {
   }
 }
 
-export async function withAndroidAdb<T>(key: string, operation: (adb: Adb) => Promise<T>) {
-  const lease = await acquireAndroidAdb(key)
-  try { return await operation(lease.adb) }
+export async function withAndroidAdb<T>(key: string, operation: (adb: Adb) => Promise<T>, signal?: AbortSignal) {
+  const lease = await acquireAndroidAdb(key, signal)
+  try { signal?.throwIfAborted(); return await operation(lease.adb) }
   finally { await lease.release() }
 }
 
@@ -227,6 +230,8 @@ class AndroidConnection {
   private device?: AdbDaemonWebUsbDevice
   private adb?: Adb
   private connecting?: Promise<Adb>
+  private handshake?: Promise<unknown>
+  private drained?: Promise<void>
   private closing?: Promise<void>
   private installTail = Promise.resolve()
   users = 0
@@ -246,10 +251,12 @@ class AndroidConnection {
       this.check()
       let connection: Awaited<ReturnType<AdbDaemonWebUsbDevice['connect']>>
       try {
-        connection = await deadline(this.device.connect().then(async connection => {
+        const opening = this.device.connect().then(async connection => {
           if (this.closed) { await this.device?.raw.close(); this.check() }
           return connection
-        }), () => { void this.device?.raw.close() })
+        })
+        this.handshake = opening
+        connection = await deadline(opening, () => {})
       } catch (error) {
         // ADB/Android Studio can own this USB interface. Share that local server
         // only before authentication/writes, and only for the observed USB serial.
@@ -262,13 +269,15 @@ class AndroidConnection {
         return this.adb
       }
       this.check()
-      const transport = await deadline(AdbDaemonTransport.authenticate({
+      const authenticating = AdbDaemonTransport.authenticate({
         serial: this.device.serial, connection,
         credentialStore: new FileAdbCredentials(getUserDataPath('data/android-adbkey.pk8')),
       }).then(async transport => {
         if (this.closed) { await transport.close(); this.check() }
         return transport
-      }), () => { void this.device?.raw.close() })
+      })
+      this.handshake = authenticating
+      const transport = await deadline(authenticating, () => {})
       this.adb = new Adb(transport); this.check()
       return this.adb
 
@@ -316,6 +325,10 @@ class AndroidConnection {
     // Release queued callers promptly, but keep FIFO ordering for their successors.
     return waitForAndroidOperation(signal, () => previous).then(() => install)
   }
+  async retire() {
+    await this.close()
+    await this.drained
+  }
   close(): Promise<void> {
     if (this.closing) return this.closing
     this.closed = true
@@ -324,8 +337,9 @@ class AndroidConnection {
       finally { await this.device?.raw.close() }
       // A new owner may claim the same native USB handle after this entry is
       // removed. Drain the interrupted handshake before allowing that claim.
-      await this.connecting?.catch(() => {})
-      if (connections.get(this.key) === this) connections.delete(this.key)
+      this.drained = Promise.allSettled([this.connecting, this.handshake]).then(() => {
+        if (connections.get(this.key) === this) connections.delete(this.key)
+      })
     }).catch(error => { this.closing = undefined; throw error })
     return this.closing
   }
@@ -336,6 +350,7 @@ type AndroidLease = Awaited<ReturnType<typeof acquireAndroidAdb>>
 export class AndroidMirror {
   private lease?: AndroidLease
   private acquiring?: Promise<AndroidLease>
+  private installs = new Set<Promise<void>>()
   private lifetime = new AbortController()
   private client?: AdbScrcpyClient<AdbScrcpyOptions3_3_3<true>>
   private closed = false
@@ -391,7 +406,9 @@ export class AndroidMirror {
   }
   installApk(filePath: string) {
     if (this.closed || !this.lease) return Promise.reject(new Error('Android session unavailable'))
-    return this.lease.installApk(filePath, () => this.check(), this.lifetime.signal)
+    const install = this.lease.installApk(filePath, () => this.check(), this.lifetime.signal)
+    this.installs.add(install)
+    return install.finally(() => this.installs.delete(install))
   }
   input(message: NativeMirrorInput, expectedGeometry?: { width: number; height: number }) {
     if (this.closed || !this.client?.controller) return Promise.reject(new Error('Android control unavailable'))
@@ -435,6 +452,8 @@ export class AndroidMirror {
       // Kill the phone server while its ADB transport is still writable.
       // Concurrent native close calls can violate node-usb's borrow rules.
       await deadline(Promise.resolve().then(() => this.client?.close()), () => {}, 2000).catch(() => {})
+      // Dropped packages clean up their device-side staging files over this lease.
+      await Promise.allSettled(this.installs)
       const lease = this.lease || await this.acquiring?.catch(() => undefined)
       await lease?.release()
     })().catch(error => { this.closing = undefined; throw error })

@@ -48,6 +48,6 @@ export async function readAndroidShellOutput(
   })
 }
 
-export async function readAndroidShell(adb: Adb, command: string, maxBytes?: number, timeout?: number) {
-  return (await readAndroidShellOutput(adb, command, maxBytes, timeout)).toString('utf8')
+export async function readAndroidShell(adb: Adb, command: string, maxBytes?: number, timeout?: number, signal?: AbortSignal) {
+  return (await readAndroidShellOutput(adb, command, maxBytes, timeout, signal)).toString('utf8')
 }

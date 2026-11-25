@@ -12,17 +12,17 @@ export function packageArgument(value: string) {
   return value
 }
 
-async function shell(adb: Adb, command: string, timeout = 15000) {
+async function shell(adb: Adb, command: string, timeout = 15000, signal?: AbortSignal) {
   // The exec protocol is available on older devices but omits the exit code.
   const output = await readAndroidShell(adb,
-    `${command}; printf '\\nSCRCPY_EXIT:%d\\n' "$?"`, 8 * 1024 * 1024, timeout)
+    `${command}; printf '\\nSCRCPY_EXIT:%d\\n' "$?"`, 8 * 1024 * 1024, timeout, signal)
   const status = /\nSCRCPY_EXIT:(\d+)\r?\n?$/.exec(output)
   if (!status || status[1] !== '0') throw new Error('Android command failed')
   return output.slice(0, status.index).trim()
 }
 
-async function currentUser(adb: Adb) {
-  const user = await shell(adb, 'am get-current-user')
+async function currentUser(adb: Adb, signal?: AbortSignal) {
+  const user = await shell(adb, 'am get-current-user', undefined, signal)
   if (!/^\d+$/.test(user)) throw new Error('Cannot determine active Android user')
   return user
 }
@@ -47,8 +47,8 @@ export function androidGetBundles(key: string, system = true) {
   })
 }
 
-async function supportsCacheOnly(adb: Adb) {
-  const help = await shell(adb, 'pm help')
+async function supportsCacheOnly(adb: Adb, signal?: AbortSignal) {
+  const help = await shell(adb, 'pm help', undefined, signal)
   return /^\s*(?:pm\s+)?clear\s+[^\n]*\[--cache-only\]/m.test(help)
 }
 
@@ -102,16 +102,20 @@ function mapPackageRecord(record: unknown, names: string[], supportsCleanCache: 
   }
 }
 
-export function androidGetBundleInfos(key: string, names: string[]) {
+export function androidGetBundleInfos(key: string, names: string[], signal?: AbortSignal) {
   const packages = names.map(packageArgument)
   return withAndroidAdb(key, async adb => {
-    const user = await currentUser(adb)
-    const cacheOnly = await supportsCacheOnly(adb).catch(() => false)
+    const user = await currentUser(adb, signal)
+    const cacheOnly = await supportsCacheOnly(adb, signal).catch(() => false)
+    signal?.throwIfAborted()
     const infos: IBundleInfo[] = []
     for (let start = 0; start < packages.length; start += 64) {
       const batch = packages.slice(start, start + 64)
+      const deadline = AbortSignal.timeout(45000)
+      const helperSignal = signal ? AbortSignal.any([signal, deadline]) : deadline
       try {
-        const records = await readPackageMetadata(adb, user, batch)
+        const records = await readPackageMetadata(adb, user, batch, helperSignal)
+        helperSignal.throwIfAborted()
         const seen = new Set<string>()
         const fromDevice = records.map(record => {
           const info = mapPackageRecord(record, batch, cacheOnly)
@@ -122,26 +126,30 @@ export function androidGetBundleInfos(key: string, names: string[]) {
         infos.push(...fromDevice)
         continue
       } catch {
+        helperSignal.throwIfAborted()
         // Some OEMs restrict app_process. Keep the package-manager shell path
         // available when the helper cannot run on this device.
       }
       for (const name of batch) {
         try {
-          const dump = await shell(adb, `dumpsys package ${name}`)
+          const dump = await shell(adb, `dumpsys package ${name}`, undefined, signal)
           const info = parseBundle(name, dump, user, cacheOnly)
           const resolver = await shell(adb,
-            `cmd package resolve-activity --brief --user ${user} -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p ${name}`
+            `cmd package resolve-activity --brief --user ${user} -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p ${name}`,
+            undefined, signal,
           ).catch(() => '')
+          signal?.throwIfAborted()
           info.mainAbility = resolver.split(/\r?\n/).map(line => line.trim()).find(line => isActivity(name, line))
           infos.push(info)
         } catch {
+          signal?.throwIfAborted()
           // Packages can disappear between enumeration and a metadata request.
           // The applications panel reports the missing records alongside successful ones.
         }
       }
     }
     return infos
-  })
+  }, signal)
 }
 
 export function androidStartBundle(key: string, name: string, activity: string, beforeWrite?: () => void) {

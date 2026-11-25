@@ -5,11 +5,11 @@ const os = require('node:os')
 const path = require('node:path')
 const vm = require('node:vm')
 const { transformSync } = require('esbuild')
-function load(file, mocks = {}) {
+function load(file, mocks = {}, globals = {}) {
   mocks = { '../ios-provisioning': { renewIos: async () => {}, disposeIosSetup() {} }, ...mocks }
   const module = { exports: {} }
   vm.runInNewContext(transformSync(fs.readFileSync(file, 'utf8'), { loader: 'ts', format: 'cjs' }).code,
-    { module, exports: module.exports, __filename: path.resolve(file), AbortController, AbortSignal, console, process, Buffer, Error, setTimeout, clearTimeout, setInterval, clearInterval,
+    { module, exports: module.exports, __filename: path.resolve(file), AbortController, AbortSignal, console, process, Buffer, Error, setTimeout, clearTimeout, setInterval, clearInterval, ...globals,
       require: id => Object.hasOwn(mocks, id) ? mocks[id] : require(id) })
   return module.exports
 }
@@ -44,7 +44,7 @@ test('codec changes and native queue loss require another keyframe', () => {
   assert.deepEqual(Array.from(next.configuration), Array.from(changed))
   assert.equal(gate.push({ data: delta, timestamp: 5, reset: true }), undefined)
 })
-function androidFixture(directory, filesystem = fs.promises, localAdb = async () => { throw Error("No local ADB server") }) {
+function androidFixture(directory, filesystem = fs.promises, localAdb = async () => { throw Error("No local ADB server") }, globals = {}) {
   const devices = ['a', 'b'].map(serial => ({ serial, name: 'Same model',
     closes: 0, connects: 0, raw: { claimInterface: async () => {}, releaseInterface: async () => {}, open: async () => {}, transferIn: async () => ({}), transferOut: async () => ({}), close: async () => { devices.find(d => d.serial === serial).closes++ } },
     async connect() { this.connects++; await this.raw.open(); return { serial } },
@@ -56,7 +56,7 @@ function androidFixture(directory, filesystem = fs.promises, localAdb = async ()
     './androidOverview': { readAndroidOverview: async adb => ({ name: adb.serial }) },
     'node:fs/promises': filesystem,
     '@yume-chan/adb': {
-      AdbDaemonTransport: { authenticate: async options => { authentications.push(options.serial); await devices.find(device => device.serial === options.serial)?.authorization; return { serial: options.serial } } },
+      AdbDaemonTransport: { authenticate: async options => { authentications.push(options.serial); await devices.find(device => device.serial === options.serial)?.authorize?.(); return { serial: options.serial } } },
       Adb: class { constructor(transport) { this.serial = transport.serial } async close() {} },
     },
     '@yume-chan/adb-daemon-webusb': { AdbDaemonWebUsbDeviceManager: class { async getDevices() { return devices } } },
@@ -78,7 +78,7 @@ function androidFixture(directory, filesystem = fs.promises, localAdb = async ()
     '@yume-chan/stream-extra': { ReadableStream, WritableStream },
     'node:module': { createRequire: () => () => ({ WebUSB: class {} }) },
     'share/main/lib/util': { getUserDataPath: file => path.join(directory, file), resolveResources: () => path.join(directory, 'server') },
-  })
+  }, globals)
   return { ...api, devices, clients, authentications }
 }
 function directory(t) {
@@ -281,14 +281,17 @@ test('closing a mirror waiting for USB authorization releases only its own claim
     const [target] = await f.discoverAndroid()
     const device = f.devices[0]
     const authorization = Promise.withResolvers()
-    device.authorization = authorization.promise
+    const started = Promise.withResolvers()
+    device.authorize = () => { started.resolve(); return authorization.promise }
     device.raw.close = async () => {
       device.closes++
       authorization.reject(new Error('USB closed'))
     }
     const mirror = new f.AndroidMirror(target)
     const failed = assert.rejects(mirror.start(() => {}, () => {}))
-    while (!f.authentications.length) await new Promise(setImmediate)
+    await Promise.race([started.promise, failed.then(() => {
+      throw new Error('Mirror failed before authorization')
+    })])
     const workspace = shared ? f.acquireAndroidAdb(target.key) : undefined
     await mirror.close()
     await failed
@@ -301,6 +304,29 @@ test('closing a mirror waiting for USB authorization releases only its own claim
     }
     assert.equal(device.closes, 1)
   }
+})
+test('a late native USB open cannot close a replacement connection after timeout', async t => {
+  const f = androidFixture(directory(t), undefined, undefined, {
+    setTimeout(fn, ms) { return setTimeout(fn, ms === 30000 ? 20 : ms) },
+  })
+  const [target] = await f.discoverAndroid()
+  const device = f.devices[0], gate = Promise.withResolvers()
+  const connect = device.connect.bind(device)
+  device.connect = async () => {
+    const connection = await connect()
+    if (device.connects === 1) await gate.promise
+    return connection
+  }
+  await assert.rejects(f.acquireAndroidAdb(target.key), /timed out/)
+  const replacement = f.acquireAndroidAdb(target.key)
+  await new Promise(setImmediate)
+  assert.equal(device.connects, 1)
+  gate.resolve()
+  const lease = await replacement
+  assert.equal(device.connects, 2)
+  assert.equal(device.closes, 1)
+  await lease.release()
+  assert.equal(device.closes, 2)
 })
 test('overview waits for a stopping mirror to release its USB interface', async t => {
   const f = androidFixture(directory(t)), [target] = await f.discoverAndroid()
@@ -467,6 +493,38 @@ test('cancelled APK phases release the install queue and close only their own ch
     assert.equal(killed, installs + cleaned)
     assert.equal(f.devices[0].closes, 0)
   }
+})
+
+test('closing the sole mirror waits for dropped APK cleanup before releasing ADB', async t => {
+  const root = directory(t), f = androidFixture(root)
+  const mirror = new f.AndroidMirror({ key: 'android:a', connectionId: 'a' })
+  await mirror.start(() => {}, () => {})
+  const cleanup = Promise.withResolvers(), uploaded = Promise.withResolvers()
+  let removed = false
+  Object.assign(mirror.lease.adb, {
+    sync: async () => ({
+      write() { uploaded.resolve(); return new Promise(() => {}) },
+      dispose() { return cleanup.promise },
+    }),
+    subprocess: { noneProtocol: { async spawn(command) {
+      assert.match(command, /^rm -f /)
+      assert.equal(f.devices[0].closes, 0)
+      removed = true
+      return { output: new ReadableStream({ start(c) { c.close() } }),
+        exited: Promise.resolve(), kill() {} }
+    } } },
+  })
+  const file = path.join(root, 'drop.apk')
+  fs.writeFileSync(file, 'fixture')
+  const install = assert.rejects(mirror.installApk(file))
+  await uploaded.promise
+  const closed = mirror.close()
+  await new Promise(setImmediate)
+  assert.equal(f.devices[0].closes, 0)
+  cleanup.resolve()
+  await Promise.all([install, closed])
+  assert.equal(removed, true)
+  assert.equal(f.devices[0].closes, 1)
 })
 
 test('a stalled APK cleanup preserves the confirmed install and releases the device queue', async t => {

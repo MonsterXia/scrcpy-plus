@@ -67,6 +67,33 @@ test('Android app writes recheck cancellation immediately before device dispatch
   assert.equal(writes, 1)
 })
 
+test('apps.info propagates client cancellation and the request deadline to the device reader', async () => {
+  for (const expires of [false, true]) {
+    const started = Promise.withResolvers(), stopped = Promise.withResolvers()
+    const android = androidHandlers({
+      '../../lib/devices/androidApps': {
+        packageArgument: value => value,
+        async androidGetBundleInfos(key, packages, signal) {
+          assert.equal(key, target.key)
+          assert.deepEqual(packages, ['example.app'])
+          started.resolve()
+          await new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }))
+          stopped.resolve()
+          throw signal.reason
+        },
+      },
+    })
+    const abort = new AbortController()
+    const c = context(abort.signal)
+    if (expires) c.deadline = Date.now() + 40
+    const result = android['apps.info']({ bundle: 'example.app' }, c, target)
+    await started.promise
+    if (!expires) abort.abort()
+    await assert.rejects(result, { code: expires ? 'TIMEOUT' : 'CANCELLED' })
+    await stopped.promise
+  }
+})
+
 test('APK cancellation reports whether pm install was dispatched and removes its staged file', async t => {
   const fs = require('node:fs/promises')
   const path = require('node:path')

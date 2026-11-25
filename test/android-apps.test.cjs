@@ -25,27 +25,31 @@ Hidden system packages:
   Package [${pkg}] (ffff):
     versionName=1.0`
 
-function fixture(responses, metadataReader) {
+function fixture(responses, metadataReader, checkLeaseSignal = () => {}) {
   const module = { exports: {} }
   const calls = []
   const deps = {
     './androidAppMetadata': { readPackageMetadata: metadataReader || (async () => { throw new Error('not available') }) },
-    './android': { withAndroidAdb: async (value, fn) => {
+    './android': { withAndroidAdb: async (value, fn, signal) => {
       assert.equal(value, key)
+      checkLeaseSignal(signal)
       return fn({})
     } },
-    './androidShell': { readAndroidShell: async (_adb, script) => {
+    './androidShell': { readAndroidShell: async (_adb, script, _limit, _timeout, signal) => {
+      signal?.throwIfAborted()
       const suffix = "; printf '\\nSCRCPY_EXIT:%d\\n' \"$?\""
       assert.ok(script.endsWith(suffix), 'operation must preserve remote exit status')
       const command = script.slice(0, -suffix.length)
       calls.push(command)
-      const response = command === 'am get-current-user' ? '12' : responses[command]
+      const configured = responses[command]
+      const response = typeof configured === 'function' ? await configured(signal)
+        : configured ?? (command === 'am get-current-user' ? '12' : undefined)
       if (response === undefined) throw new Error(`unexpected command ${command}`)
       const [output, exit] = Array.isArray(response) ? response : [response, 0]
       return `${output}\nSCRCPY_EXIT:${exit}\n`
     } },
   }
-  vm.runInNewContext(code, { module, exports: module.exports, require: id => deps[id] })
+  vm.runInNewContext(code, { module, exports: module.exports, AbortSignal, require: id => deps[id] })
   return { apps: module.exports, calls }
 }
 
@@ -175,11 +179,54 @@ test('batches PackageManager metadata and uses resource labels and thumbnails wi
   assert.deepEqual(calls, ['am get-current-user', 'pm help'])
 })
 
-test('metadata helper uses a private read-only path per concurrent batch and removes partial uploads', async () => {
+test('metadata cancellation stops user, capability, helper and fallback reads before the next device command', async () => {
+  for (const stage of ['am get-current-user', 'pm help', 'helper', `dumpsys package ${pkg}`, resolver]) {
+    const abort = new AbortController()
+    const commands = []
+    const read = (name, value) => signal => {
+      commands.push(name)
+      assert.ok(signal)
+      if (name === stage) {
+        abort.abort(new Error('metadata cancelled'))
+        assert.equal(signal.aborted, true)
+        throw signal.reason
+      }
+      return value
+    }
+    const { apps } = fixture({
+      'am get-current-user': read('am get-current-user', '12'),
+      'pm help': read('pm help', supported),
+      [`dumpsys package ${pkg}`]: read(`dumpsys package ${pkg}`, metadata),
+      [resolver]: read(resolver, activity),
+    }, async (_adb, _user, _names, signal) => {
+      read('helper')(signal)
+      throw Error('helper unavailable')
+    }, signal => assert.equal(signal, abort.signal))
+    await assert.rejects(apps.androidGetBundleInfos(key, [pkg, 'another.package'], abort.signal), /metadata cancelled/)
+    assert.equal(commands.at(-1), stage)
+  }
+})
+
+function loadMetadataHelper(shell) {
   const metadataCode = transformSync(readFileSync('src/main/lib/devices/androidAppMetadata.ts', 'utf8'), {
     loader: 'ts', format: 'cjs',
   }).code
   const module = { exports: {} }
+  const deps = {
+    'node:crypto': require('node:crypto'),
+    'node:fs/promises': { readFile: async () => Buffer.from('test archive') },
+    '@yume-chan/stream-extra': { ReadableStream: { from: input => input } },
+    'share/main/lib/util': { resolveResources: path => path },
+    './androidShell': {
+      ...require('./helpers/load-automation.cjs')('src/main/lib/devices/androidShell.ts'),
+      readAndroidShell: shell,
+    },
+  }
+  vm.runInNewContext(metadataCode, { module, exports: module.exports, require: id => deps[id] })
+  return module.exports.readPackageMetadata
+}
+
+test('metadata helper uses a private read-only path per concurrent batch and removes partial uploads', async () => {
   const written = [], removed = []
   let disposed = 0, failUpload = false
   const adb = {
@@ -194,22 +241,13 @@ test('metadata helper uses a private read-only path per concurrent batch and rem
         async dispose() { disposed++ },
       }
     },
-    async rm(path) { removed.push(path) },
   }
-  const deps = {
-    'node:crypto': require('node:crypto'),
-    'node:fs/promises': { readFile: async () => Buffer.from('test archive') },
-    '@yume-chan/stream-extra': { ReadableStream: { from: input => input } },
-    'share/main/lib/util': { resolveResources: path => path },
-    './androidShell': {
-      async readAndroidShell(_adb, command) {
-        assert.match(command, /\.jar app_process \/ com\.genymobile\.scrcpy\.WorkspaceApps 0 com\.example\.app$/)
-        return 'SCRCPY_WORKSPACE_APPS []\n'
-      },
-    },
-  }
-  vm.runInNewContext(metadataCode, { module, exports: module.exports, require: id => deps[id] })
-  const read = () => module.exports.readPackageMetadata(adb, '0', [pkg])
+  const metadata = loadMetadataHelper(async (_adb, command) => {
+    if (command.startsWith('rm -f ')) return removed.push(command.slice(6))
+    assert.match(command, /\.jar app_process \/ com\.genymobile\.scrcpy\.WorkspaceApps 0 com\.example\.app$/)
+    return 'SCRCPY_WORKSPACE_APPS []\n'
+  })
+  const read = () => metadata(adb, '0', [pkg], new AbortController().signal)
   await Promise.all([read(), read()])
   failUpload = true
   await assert.rejects(read(), /upload failed/)
@@ -217,4 +255,37 @@ test('metadata helper uses a private read-only path per concurrent batch and rem
   assert.equal(new Set(written).size, 3)
   assert.deepEqual(removed.sort(), [...written].sort())
   assert.ok(written.every(name => name.startsWith('/data/local/tmp/scrcpy-plus-apps-')))
+})
+
+test('cancelled metadata closes a late sync channel or partial upload without running the helper', async () => {
+  for (const stage of ['open', 'upload']) {
+    const abort = new AbortController()
+    const opening = Promise.withResolvers(), started = Promise.withResolvers()
+    const commands = []
+    let writes = 0, closes = 0
+    const channel = {
+      write() { writes++; started.resolve(); return new Promise(() => {}) },
+      async dispose() { closes++ },
+    }
+    const adb = { sync() {
+      if (stage === 'upload') return Promise.resolve(channel)
+      started.resolve()
+      return opening.promise
+    } }
+    const metadata = loadMetadataHelper(async (_adb, command, _max, timeout, signal) => {
+      commands.push(command)
+      assert.equal(timeout, 5000)
+      assert.equal(signal, undefined)
+      return ''
+    })
+    const read = metadata(adb, '0', [pkg], abort.signal)
+    await started.promise
+    abort.abort(new Error('cancel metadata'))
+    opening.resolve(channel)
+    await assert.rejects(read, /cancel metadata/)
+    assert.equal(closes, 1)
+    assert.equal(writes, stage === 'upload' ? 1 : 0)
+    assert.equal(commands.length, writes)
+    assert.ok(commands.every(command => command.startsWith('rm -f /data/local/tmp/scrcpy-plus-apps-')))
+  }
 })
