@@ -41,6 +41,34 @@ class DeviceTests(unittest.TestCase):
         p['Entitlements']['application-identifier']='TEAM123456.*'
         self.assertIsNone(profile_expiry([p],bid,'01234567'))
 class DeveloperImageTests(unittest.IsolatedAsyncioTestCase):
+    async def test_start_routes_mount_to_tunnel_only_when_required(self):
+        import device
+        from contextlib import ExitStack
+        from unittest.mock import AsyncMock, patch
+        from pymobiledevice3.exceptions import RSDRequiredError
+
+        serial, bid = '01234567', 'runner'
+        request = {'op': 'start', 'udid': serial, 'bundleId': bid}
+        for needs_tunnel in (False, True):
+            with self.subTest(needs_tunnel=needs_tunnel), ExitStack() as stack:
+                lockdown = AsyncMock()
+                stack.enter_context(patch('pymobiledevice3.lockdown.create_using_usbmux', return_value=lockdown))
+                proxy = stack.enter_context(patch('pymobiledevice3.services.installation_proxy.InstallationProxyService'))
+                proxy.return_value.__aenter__.return_value.lookup.return_value = {bid: {}}
+                profiles = stack.enter_context(patch('pymobiledevice3.services.misagent.MisagentService'))
+                profiles.return_value.__aenter__.return_value.copy_all.return_value = []
+                mounter = stack.enter_context(patch('pymobiledevice3.services.mobile_image_mounter.MobileImageMounterService'))
+                mounter.return_value.__aenter__.return_value.query_developer_mode_status.return_value = True
+                stack.enter_context(patch('device.wda_status', return_value={'availability':'absent','busy':False,'ready':False}))
+                mount = stack.enter_context(patch('device.ensure_developer_image'))
+                if needs_tunnel:
+                    mount.side_effect = RSDRequiredError(serial, '27.2.1')
+                start = stack.enter_context(patch('device.start_runner', return_value={'ready':True}))
+                result = await device.operate(request)
+                self.assertTrue(result['ready'])
+                mount.assert_awaited_once_with(lockdown.__aenter__.return_value)
+                start.assert_awaited_once_with(serial, bid, False, mount_over_rsd=needs_tunnel)
+
     async def test_existing_developer_image_does_not_block_startup(self):
         import device
         from unittest.mock import AsyncMock, patch
@@ -85,7 +113,7 @@ class StatusProbeTests(unittest.IsolatedAsyncioTestCase):
 
 
 class RunnerLaunchTests(unittest.IsolatedAsyncioTestCase):
-    async def run_launch(self, statuses, version='27.0', recovering=False):
+    async def run_launch(self, statuses, version='27.0', recovering=False, mount_over_rsd=False):
         import device
         from unittest.mock import AsyncMock, patch
         process=AsyncMock()
@@ -94,9 +122,20 @@ class RunnerLaunchTests(unittest.IsolatedAsyncioTestCase):
         tunnel=AsyncMock();tunnel.__aenter__.return_value=SimpleNamespace(product_version=version)
         dvt=AsyncMock();dvt.__aenter__.return_value=object()
         with patch('pymobiledevice3.remote.core_device.app_service.AppServiceService',return_value=process), patch('pymobiledevice3.remote.userspace_tunnel.UserspaceRsdTunnel',return_value=tunnel), patch('pymobiledevice3.services.dvt.instruments.dvt_provider.DvtProvider',return_value=dvt), patch('pymobiledevice3.services.dvt.instruments.process_control.ProcessControl',return_value=process), patch('device.wda_status',new=AsyncMock(side_effect=statuses)), patch('device.asyncio.sleep',new=AsyncMock()):
-            try: result=await device.start_runner('01234567','runner',recovering)
+            try: result=await device.start_runner('01234567','runner',recovering,mount_over_rsd=mount_over_rsd)
             except Exception as e: result=e
         return result,process
+
+    async def test_mount_required_over_rsd_uses_the_launch_tunnel(self):
+        from unittest.mock import AsyncMock, patch
+        absent = {'availability':'absent','ready':False,'busy':False}
+        ready = {'availability':'available','ready':True,'busy':False,'runnerBundleId':'runner'}
+        with patch('device.ensure_developer_image', new_callable=AsyncMock) as mount:
+            result, process = await self.run_launch([absent, ready], mount_over_rsd=True)
+        self.assertTrue(result['ready'])
+        mount.assert_awaited_once()
+        self.assertEqual(mount.await_args.args[0].product_version, '27.0')
+        process.launch.assert_awaited_once()
 
     async def test_ios26_waits_for_phone_auth_without_replacing_the_process(self):
         absent={'availability':'absent','ready':False,'busy':False}

@@ -247,6 +247,7 @@ export default observer(function App() {
       <span>{t('plusNativeInputError')}</span>
       <button className={StatusStyle.retryButton} type="button" onClick={() => void reconnect(true)}>{t('plusReconnectControl')}</button>
     </div>}
+    {android && <Toolbar connected={status === 'running'} onKey={keyCode => send({ type: 'key', keyCode })} />}
     {iosUsb && <Toolbar mode={videoMode} busy={videoBusy} connected={status === 'running'} onVideo={enabled => {
         setVideoBusy(true)
         void main.nativeMirrorVideo(enabled).catch(() => setVideoMode('video-error')).finally(() => setVideoBusy(false))

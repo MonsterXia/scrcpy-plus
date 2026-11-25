@@ -78,6 +78,7 @@ async def ensure_developer_image(lockdown):
         pass
 
 async def operate(r):
+    from pymobiledevice3.exceptions import RSDRequiredError
     from pymobiledevice3.lockdown import create_using_usbmux
     from pymobiledevice3.services.installation_proxy import InstallationProxyService
     from pymobiledevice3.services.misagent import MisagentService
@@ -104,13 +105,20 @@ async def operate(r):
         if not bid: raise ValueError('not-installed')
         if not mode: raise ValueError('developer-mode')
         emit({'event':'phase','phase':'mounting'})
-        await ensure_developer_image(lockdown)
-    emit({'event':'phase','phase':'starting'})
-    return {**result, **await start_runner(r['udid'], bid, recovering)}
+        mount_over_rsd = False
+        try:
+            await ensure_developer_image(lockdown)
+        except RSDRequiredError:
+            # Newer devices install the DDI through the same tunnel used to launch the Runner.
+            mount_over_rsd = True
+    return {**result, **await start_runner(r['udid'], bid, recovering, mount_over_rsd=mount_over_rsd)}
 
-async def start_runner(udid, bid, recovering=False):
+async def start_runner(udid, bid, recovering=False, *, mount_over_rsd=False):
     from pymobiledevice3.remote.userspace_tunnel import UserspaceRsdTunnel
     async with UserspaceRsdTunnel(serial=udid,autopair=False,remotepairing_fallback=False) as rsd:
+        if mount_over_rsd:
+            await ensure_developer_image(rsd)
+        emit({'event':'phase','phase':'starting'})
         status = await wda_status(udid)
         for attempt in range(3 if recovering else 1):
             if (status.get('reachable') or status['ready']) and status.get('runnerBundleId') != bid: raise ValueError('runner-mismatch')

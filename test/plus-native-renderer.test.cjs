@@ -51,6 +51,23 @@ function pointer(canvas, type, x, y, pointerId = 1) {
   Object.assign(event, { clientX: x, clientY: y, pointerId, isPrimary: pointerId === 1, button: 0 })
   canvas.dispatchEvent(event)
 }
+test('Android mirror toolbar sends device keys only while connected', async t => {
+  const f = await fixture(t, 'android', 'usb', {}, { state: 'starting' })
+  const toggle = document.querySelector('[aria-controls="android-mirror-tools"]')
+  const panel = f.host.querySelector('#android-mirror-tools')
+  assert.equal(panel.hasAttribute('inert'), true)
+  await act(async () => toggle.click())
+  const buttons = Array.from(panel.querySelectorAll('button'))
+  assert.deepEqual(buttons.map(b => b.getAttribute('aria-label')), ['back', 'home', 'volumeUp', 'volumeDown'])
+  assert.ok(buttons.every(b => b.disabled))
+  await act(async () => f.listeners.get('nativeMirrorState')({ id: 'owned-session', state: 'running' }))
+  await act(async () => buttons.forEach(b => b.click()))
+  assert.deepEqual(f.inputs.map(input => [input.type, input.keyCode]), [['key', 4], ['key', 3], ['key', 24], ['key', 25]])
+  assert.equal(panel.querySelector('select'), null)
+  await act(async () => f.listeners.get('nativeMirrorState')({ id: 'owned-session', state: 'disconnected' }))
+  assert.ok(buttons.every(b => b.disabled))
+})
+
 test('native Android canvas maps content coordinates and ignores another pointer during a drag', async t => {
   const f = await fixture(t), canvas = f.host.querySelector('canvas')
   canvas.setPointerCapture = () => {}
