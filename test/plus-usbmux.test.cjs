@@ -46,12 +46,13 @@ async function fixture(t, malformed = false, values = { DeviceName: 'iPhone Fixt
   return { ...module.exports, seen, sockets }
 }
 test('iOS discovery speaks framed usbmux and lockdown directly and keeps the USB identity', async t => {
-  const f = await fixture(t), targets = await f.discoverIos()
+  const f = await fixture(t, false, { DeviceName: 'iPhone Fixture', ProductType: 'iPhone14,5' }), targets = await f.discoverIos()
   assert.equal(targets.length, 1)
   assert.equal(targets[0].key, 'ios:01234567-1234567890abcdef')
   assert.equal(targets[0].name, 'iPhone Fixture')
   assert.equal(targets[0].state, 'ready')
-  assert.deepEqual(f.seen.map(x => x.MessageType || x.Request), ['ListDevices', 'Connect', 'GetValue'])
+  assert.equal(targets[0].model, 'iPhone14,5')
+  assert.deepEqual(f.seen.map(x => x.MessageType || x.Key), ['ListDevices', 'Connect', 'DeviceName', 'ProductType'])
 })
 test('invalid usbmux tags reject instead of selecting an unrelated reply', async t => {
   const f = await fixture(t, true)

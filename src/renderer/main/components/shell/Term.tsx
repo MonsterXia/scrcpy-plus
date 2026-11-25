@@ -29,7 +29,7 @@ export default observer(function Term(props: ITermProps) {
   const fitRef = useRef<() => void>(() => {})
   const callbacks = useRef(props)
   callbacks.current = props
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error' | 'idle'>(
+  const [status, setStatus] = useState<'loading' | 'ready' | 'ended' | 'error' | 'idle'>(
     'idle',
   )
   const key = store.target?.key
@@ -96,9 +96,13 @@ export default observer(function Term(props: ITermProps) {
           await kill(id)
           return
         }
-        setSessionId(id)
-        setStatus('ready')
         fit()
+        setSessionId(id)
+        if (id.startsWith('android:')) await main.resizeAndroidShell(id, term.rows, term.cols)
+        if (!current() || request !== generation || sessionIdRef.current !== id) return
+        setStatus('ready')
+        // Bind the Android stream before draining its initial shell prompt.
+        if (id.startsWith('android:')) await main.writeShell(id, '')
       } catch {
         if (current() && request === generation) setStatus('error')
       }
@@ -106,13 +110,33 @@ export default observer(function Term(props: ITermProps) {
     resetRef.current = () => {
       if (current()) void create()
     }
-    const input = term.onData(async (data) => {
+    async function write(data: string | Uint8Array) {
       const id = sessionIdRef.current
       if (!current() || !id) return
       try {
         await main.writeShell(id, data)
       } catch {
         if (current() && sessionIdRef.current === id) setStatus('error')
+      }
+    }
+    const input = term.onData(write)
+    const resize = store.target?.platform === 'android'
+      ? term.onResize(({ rows, cols }) => {
+          const id = sessionIdRef.current
+          if (id && current()) {
+            void main.resizeAndroidShell(id, rows, cols).catch(() => {
+              if (current() && sessionIdRef.current === id) setStatus('error')
+            })
+          }
+        })
+      : undefined
+    const binary = store.target?.platform === 'android'
+      ? term.onBinary((data) => void write(Uint8Array.from(data, (char) => char.charCodeAt(0))))
+      : undefined
+    const offShellEnd = main.on('shellEnded', (id) => {
+      if (current() && id === sessionIdRef.current) {
+        setSessionId('')
+        setStatus('ended')
       }
     })
     const offShellData = main.on('shellData', (id, data) => {
@@ -123,6 +147,9 @@ export default observer(function Term(props: ITermProps) {
       disposed = true
       generation++
       offShellData()
+      offShellEnd()
+      binary?.dispose()
+      resize?.dispose()
       input.dispose()
       observer.disconnect()
       window.removeEventListener('resize', fit)
@@ -212,9 +239,9 @@ export default observer(function Term(props: ITermProps) {
           {t('shellConnecting')}
         </div>
       )}
-      {status === 'error' && (
+      {(status === 'ended' || status === 'error') && (
         <div className={Style.error} role="alert">
-          {t('shellSessionError')}
+          {t(status === 'ended' ? 'androidShellEnded' : 'shellSessionError')}
           <button type="button" onClick={() => resetRef.current()}>
             {t('retry')}
           </button>

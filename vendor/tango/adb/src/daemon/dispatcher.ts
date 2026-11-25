@@ -393,7 +393,8 @@ export class AdbPacketDispatcher implements Closeable {
     }
 
     async createSocket(service: string): Promise<AdbSocket> {
-        if (this.options.appendNullToServiceString) {
+        // Some adbd builds read abstract socket names as C strings even on newer protocols.
+        if (this.options.appendNullToServiceString || service.startsWith("localabstract:")) {
             service += "\0";
         }
 

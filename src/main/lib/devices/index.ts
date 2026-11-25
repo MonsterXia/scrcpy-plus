@@ -64,7 +64,7 @@ export async function startSelected(key: string) {
   }
   else await mirrorSessions.start(target)
 }
-export function init() {
+export function init(disposeTools?: () => Promise<void>) {
   handleEvent('getDevices', getDevices)
   handleEvent('getDeviceOverview', async (key: string) => {
     if (typeof key !== 'string') throw new Error('Invalid device key')
@@ -92,7 +92,9 @@ export function init() {
     stopping = true
     clearInterval(renewal); disposeIosSetup()
     screencast.dispose()
-    void mirrorSessions.dispose().catch(() => console.error('Mirror backend cleanup unconfirmed'))
+    void Promise.allSettled([mirrorSessions.dispose(), disposeTools?.()]).then(results => {
+      for (const result of results) if (result.status === 'rejected') console.error('Device cleanup unconfirmed', result.reason)
+    })
       .finally(() => { cleaned = true; app.quit() })
   })
 }

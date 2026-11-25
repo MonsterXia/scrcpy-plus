@@ -1,6 +1,6 @@
 # Scrcpy Plus 自动化接口
 
-当前为开发分支能力，协议 v1。已实现应用内本地服务、CLI 服务启动/状态/诊断、设备发现、会话 lease、画布截图和 Android/Harmony 输入。M3 已通过真实 Electron 模拟闭环，真机/Windows 验收仍 pending；现有鸿蒙设备工具及 [MCP](mcp.md) 已完成本机候选实现，最终回归和真机/平台验收状态见[实施计划](../../superpowers/plans/2026-11-16-agent-automation.md)。
+CLI 与 MCP 通过协议 v1 复用桌面应用的设备连接。两个入口均支持会话、截图、输入、应用管理、设备调试及投屏窗口布局。工作区命令使用显式设备 key，可直接查询 Android、Harmony 和 USB iOS 的概览。各平台支持的操作见[能力矩阵](capabilities.md)。
 
 ## 开发运行
 

@@ -10,12 +10,10 @@ import xpath from 'licia/xpath'
 import copy from 'licia/copy'
 import { Document, Element } from '@xmldom/xmldom'
 import { t } from 'common/util'
-import { PannelLoading } from '../common/loading'
 
 interface IProps {
   hierarchy?: Document
   selected: Element | null
-  isLoading: boolean
   onSelect?: (el: Element) => void
   onDomViewerCreate?: (domViewer: DomViewer) => void
 }
@@ -34,9 +32,7 @@ export default observer(function Tree(props: IProps) {
     : ''
 
   let content: JSX.Element | null = null
-  if (props.isLoading && !props.hierarchy) {
-    content = <PannelLoading />
-  } else if (props.hierarchy) {
+  if (props.hierarchy) {
     content = (
       <LunaDomViewer
         theme={store.theme}

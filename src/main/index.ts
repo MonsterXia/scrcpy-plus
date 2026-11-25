@@ -5,6 +5,8 @@ import * as main from './window/main'
 import * as terminal from 'share/main/window/terminal'
 import * as hdc from './lib/hdc'
 import * as devices from './lib/devices'
+import { initAndroidTools, disposeAndroidTools } from './lib/devices/androidTools'
+import { getWin } from 'share/main/lib/window'
 import * as updater from './lib/updater'
 import * as screencastPreparation from './lib/screencastPreparation'
 import log from 'share/common/log'
@@ -24,7 +26,7 @@ app.on('ready', () => {
   updater.init()
   terminal.init()
   hdc.init()
-  devices.init()
+  devices.init(disposeAndroidTools)
   const instanceId = randomUUID()
   const service = createAutomationRuntime(instanceId, app.getVersion())
   attachAutomationLifecycle(app, () => {
@@ -32,5 +34,6 @@ app.on('ready', () => {
   }, code => logger.error(code))
   screencastPreparation.init()
   main.showWin()
+  initAndroidTools(getWin('main').webContents)
   menu.init()
 })

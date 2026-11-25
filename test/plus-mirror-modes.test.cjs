@@ -14,6 +14,20 @@ test('layout filtering affects only selected sessions and preserves other device
  assert.throws(()=>applyMirrorLayout({layout:'merged',deviceKeys:[]},provider,{}),/No active/)
  assert.throws(()=>applyMirrorLayout({layout:'merged',deviceKeys:'all'},provider,{}),/Invalid/)
 })
+test('separating a group only activates one mirror', () => {
+ const calls = []
+ const { applyMirrorLayout } = load('src/main/window/mirrorLayout.ts', {
+  './mergedMirrors': { closeMergedMirrors() {} }, './arrangeMirrors': {},
+ })
+ const sources = ['visible', 'hidden', 'front'].map(deviceKey => ({
+  deviceKey, window: {
+   isDestroyed: () => false, isMinimized: () => false, isVisible: () => deviceKey === 'visible',
+   showInactive: () => calls.push(['reveal', deviceKey]), show: () => calls.push(['activate', deviceKey]),
+  },
+ }))
+ applyMirrorLayout({ layout: 'independent' }, () => sources, {})
+ assert.deepEqual(calls, [['reveal', 'hidden'], ['activate', 'front']])
+})
 test('focus restores existing windows and merged views without starting a session; layout readback tracks actual windows',()=>{
  let mergedWindow;const calls=[]
  const {applyMirrorLayout,getMirrorLayout,focusMirror}=load('src/main/window/mirrorLayout.ts',{'./mergedMirrors':{

@@ -6,13 +6,13 @@ Scrcpy Plus is the continuation of this project, now hosted at `MonsterXia/scrcp
 
 Android, HarmonyOS and iOS mirroring workbench, based on Scrcpy Harmony. See [integration status and setup](docs/scrcpy-plus/integration.md). Android USB/ADB and iOS AirPlay are integrated as source libraries and built-in app windows; developer build requirements and unverified device coverage are documented there. The upstream documentation below describes the original Harmony project.
 
-In the development branch, merged mirrors keep each device’s live view and controls. The HarmonyOS and USB iPhone panes share a compact toolbar. The iPhone mode picker switches between ReplayKit video and WDA screenshots. See the [mirroring guide](docs/scrcpy-plus/integration.md).
+In the development branch, merged mirrors keep each device’s live view and controls. Drop one or more APK files onto an Android mirror or its pane in a merged window to install them on that device. Select an Android phone in Overview to manage apps, capture screenshots, use a shell or Logcat, inspect processes and UI layouts, and debug WebViews enabled by the foreground app. The HarmonyOS and USB iPhone panes share a compact toolbar. The iPhone mode picker switches between ReplayKit video and WDA screenshots. See the [mirroring guide](docs/scrcpy-plus/integration.md).
 
 The development branch adds iOS USB screenshot/control through WDA and default ReplayKit video. Basic video, input and reconnect checks passed on an iPhone 13; long-duration and cross-platform acceptance remain pending. See [iOS USB setup](docs/scrcpy-plus/ios-usb-wda.md).
 
 The 1.0.5-dev.3 prerelease adds in-app Apple ID sign-in, WDA preparation and renewal while the desktop is running and the iPhone is connected. macOS in-app sign-in, signing/install, startup and real renewal triggered by a controlled test clock have passed; clean-host/DDI, elapsed seven-day renewal and Windows validation remain pending; see [implementation status](docs/maintenance/ios-desktop-provisioning.md).
 
-Development automation: the shared local service, standalone Node CLI and [MCP stdio adapter](docs/scrcpy-plus/automation/mcp.md) expose sessions, screenshots, input and existing Harmony tools. See the [automation guide](docs/scrcpy-plus/automation/README.md) and [Agent skill](.agents/skills/scrcpy-plus-automation/SKILL.md). Local simulated workflows pass; physical-device automation and Windows automation end-to-end acceptance remain pending.
+Development automation: the shared local service, standalone Node CLI and [MCP stdio adapter](docs/scrcpy-plus/automation/mcp.md) expose sessions, screenshots, input, mirror window layouts, Android and Harmony workspace tools, and USB iOS overview. See the [automation guide](docs/scrcpy-plus/automation/README.md) and [Agent skill](.agents/skills/scrcpy-plus-automation/SKILL.md). Local simulated workflows pass; physical-device automation and Windows automation end-to-end acceptance remain pending.
 
 ## 1.0.5-dev.3 development prerelease
 

@@ -13,9 +13,9 @@ test('binary artifacts roundtrip empty logs and XML without relaxing frame valid
  assert.throws(()=>wire.encodeResult({ok:true,data:{frame:{},bytes:Buffer.alloc(0)}}),{code:'INTERNAL'})
 })
 test('layout SDK waits are bounded and late bootstrap never starts capture; log adapter exports bytes',async()=>{
- const {createHarmonyToolHandlers}=load('src/main/automation/adapters/harmonyTools.ts');let finish,captures=0
+ const {createDeviceToolHandlers}=load('src/main/automation/adapters/harmonyTools.ts');let finish,captures=0
  const deps={discover:async()=>({targets:[{key:'h',platform:'harmony',state:'ready'}],errors:[]}),shell:async()=>'',layout:async(_key,c)=>{await c.wait(()=>new Promise(r=>finish=r));captures++;return '<H/>'},logs:async(_key,d,m,c)=>c.captureHost(['shell','hilog'],d,m),captureHost:async(_key,args,c,d,m)=>{assert.deepEqual(args,['shell','hilog']);return{bytes:Buffer.alloc(0),truncated:false,durationMs:d}}}
- const h=createHarmonyToolHandlers(deps),ctx={clientId:'c',deadline:Date.now()+40,signal:new AbortController().signal}
+ const h=createDeviceToolHandlers(deps),ctx={clientId:'c',deadline:Date.now()+40,signal:new AbortController().signal}
  await assert.rejects(h['layout.dump']({device:'h'},ctx),{code:'TIMEOUT'});finish();await new Promise(r=>setImmediate(r));assert.equal(captures,0)
  const result=await h['logs.capture']({device:'h',durationMs:10},{...ctx,deadline:Date.now()+1000});assert.equal(result.artifact.byteLength,0);assert.equal(result.artifact.durationMs,10)
  const abort=new AbortController(),pending=h['layout.dump']({device:'h'},{...ctx,deadline:Date.now()+1000,signal:abort.signal});await new Promise(r=>setImmediate(r));abort.abort();await assert.rejects(pending,{code:'CANCELLED'});finish()

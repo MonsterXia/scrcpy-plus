@@ -6,15 +6,14 @@ import Style from './Toolbar.module.scss'
 interface Props {
   ref: Ref<HTMLButtonElement>
   expanded: boolean
-  visible: boolean
   controls: string
   onClick(): void
 }
 
-export default observer(function ToolbarToggle({ ref, expanded, visible, controls, onClick }: Props) {
+export default observer(function ToolbarToggle({ ref, expanded, controls, onClick }: Props) {
   const label = t(expanded ? 'hideScreencastTools' : 'showScreencastTools')
   return (
-    <button ref={ref} type="button" className={Style.toggle} data-visible={visible}
+    <button ref={ref} type="button" className={Style.toggle}
       aria-label={label} title={label} aria-expanded={expanded} aria-controls={controls} onClick={onClick}
       onKeyDown={event => {
         // The titlebar button is portaled after the panel in document order.

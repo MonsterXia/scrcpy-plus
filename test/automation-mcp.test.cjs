@@ -37,3 +37,15 @@ test('stdio cancellation reaches HTTP work without retries; connection remains u
  await Promise.race([cancelled,new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('cancellation not forwarded')),2000);timer.unref()})])
  const status=await f.client.callTool({name:'service_status',arguments:{}});assert.equal(status.structuredContent.ok,true);assert.equal(calls,2)
 })
+
+test('standalone Harmony snapshots return native JPEG content and artifact metadata', async t => {
+  const bytes = Buffer.from([255, 216, 255, 217])
+  const f = await fixture(t, async request => ok(request, {
+    artifact: { artifactId: 'fixture', mimeType: 'image/jpeg', byteLength: bytes.length }, bytes,
+  }))
+  const snapshot = await f.client.callTool({ name: 'screen_snapshot', arguments: { device: 'h' } })
+  const image = snapshot.content.find(item => item.type === 'image')
+  assert.equal(image.mimeType, 'image/jpeg')
+  assert.deepEqual(Buffer.from(image.data, 'base64'), bytes)
+  assert.equal(snapshot.structuredContent.data.frame, undefined)
+})

@@ -108,7 +108,7 @@ HAP 拖入由主窗口和投屏根组件各注册一次 `src/renderer/lib/useHap
 
 `hdc/parameters.ts` 的同步 `parseTargetParameters` 供枚举及概览有限读取共用；旧 `getTargetParameters` reader 导出保留，但这两个处理器不再经其读取。解析前拒绝行首 `[Fail]`、`[E` 加六位数字 `]`、`error:` 等明确命令错误；合法参数值中的同名文本不算错误，缺少可选字段仍交给上层兼容处理。解析层不修改服务生命周期或共享 shell。
 
-概览 `Overview.refresh()` 在读取失败后清空旧概览并提示错误，释放加载状态后允许再次刷新，避免将上次数据呈现为当前结果。设备选择器位于概览内，`overviewTarget` 支持 Android/Harmony/USB iOS（排除 AirPlay）；`target` 继续只供鸿蒙工具使用。概览组件不跟随 HDC target key 重挂载，以 key/平台/state 的语义身份管理读取会话，禁止以设备对象引用判断轮询中的同一设备。统一 IPC `getDeviceOverview` 按当前发现记录分派；Android 固定只读命令与有界读取见 `devices/androidOverview.ts`，连接复用/临时连接/停止期归属见 `devices/android.ts`。多端投屏页的勾选启动与已创建窗口排列范围独立，`getMirrorLayout`/`focusMirror` 不创建或重启视频会话。
+概览 `Overview.refresh()` 在读取失败后清空旧概览并提示错误，释放加载状态后允许再次刷新，避免将上次数据呈现为当前结果。设备选择器位于概览内，`overviewTarget` 支持 Android/Harmony/USB iOS（排除 AirPlay）；持久化 `target` 保留上一次鸿蒙选择，渲染端 `store.target` 提供当前工具设备。概览组件不跟随 HDC target key 重挂载，以 key/平台/state 的语义身份管理读取会话，禁止以设备对象引用判断轮询中的同一设备。统一 IPC `getDeviceOverview` 按当前发现记录分派；Android 固定只读命令与有界读取见 `devices/androidOverview.ts`，连接复用/临时连接/停止期归属见 `devices/android.ts`。多端投屏页的勾选启动与已创建窗口排列范围独立，`getMirrorLayout`/`focusMirror` 不创建或重启视频会话。
 
 `hdc.ts` 的 `getTargets` 对每个设备单独读取参数并隔离失败，保留可读取设备的原始顺序。版本从可识别的点分数字字段提取；缺失或未知版本返回空字符串并记警告，名称缺失回退到 connectKey，API 字段缺失返回空字符串。`listTargets` 失败记录 error，非空设备列表全部读取失败记录 warn，两者均拒绝 IPC；正常无设备记录 info 并返回空数组；部分设备失败仍返回其余设备。成功返回类型仍为 `ITarget[]`。主窗口 `refreshTargets()` 捕获失败、清空列表和选择、设置 `targetsError` 并返回 false；初始化和设备事件刷新也使用此路径。`workspace/DeviceSwitcher.tsx` 区分读取失败与正常无设备，手动刷新按布尔结果提示成功或错误，并在组件卸载后忽略通知。
 
@@ -180,8 +180,8 @@ Canvas pointer 事件
 - 客户端用局部队列合并缩放，主进程提供跨 renderer 的设备顺序；帧须同时匹配 sessionId 与启动 generation。本次启动未出图或创建/start 拒绝后五秒重试，`ready` 只代表首次成功绘制。`destroy(): void` 清除重试、退订帧/指针监听、取消图片加载，并立即发送 session stop 以便主进程本地失效；创建回复迟到时也释放 token。不能撤销已发送的设备请求，永不返回时仍不能确认远端停止。
 - `loadImage(url, signal?)` 清理图片处理器并支持取消；客户端在 finally 中释放 Blob URL。无设备生命周期回归见 `test/screencast-lifecycle.test.cjs`，真实捕获和原应用问题的验收边界见 `docs/maintenance/M2-3-recovery.md`。
 - `src/renderer/screencast/components/Screencast.tsx` 等首帧 ready 后挂载 Canvas，并处理拖入 HAP；`lib/fitWindow.ts` 观察实际帧比例和容器尺寸，首帧/比例变化时通过 preload 的 `fitScreencast` 报告尺寸及实测窗口界面占用。主进程 `window/screencast.ts` 只接受当前投屏主文档，按当前窗口面积、画面比例和显示器可用 DIP 空间调整窗口；最大化/全屏保持不动。相同比例的帧、分辨率档位和普通手动缩放不反复调整窗口。Canvas 的 CSS 尺寸始终按比例计算，低分辨率画面也可填满适配后的窗口，触摸仍使用真实画面矩形。卸载时取消尺寸观察与待执行回调。同目录的 `Toolbar.tsx` 提供缩放、按键、PNG 导出、置顶和全屏；文本输入由画面键盘与粘贴处理。
-- 工具栏默认隐藏，通过标题栏左侧「⋯」展开左对齐毛玻璃面板，点击「×」或工具区 Escape 收起并恢复入口焦点。入口经 React portal 挂到 body，避开视频容器裁剪；44×30 的 no-drag 唤起区域仅在标题栏内，macOS 向右避开交通灯。鼠标离开 2 秒后自动收起，返回取消计时；入口再空闲 2 秒隐藏，移入标题栏入口区域或键盘聚焦时显示。通过 portal 的 React 事件保持共同悬停/焦点逻辑，不再监听 document mousemove，不遮挡手机输入。键盘操作和选择框编辑期间暂停，操作结束后重新计时，卸载清理计时器及 portal。视频不为工具栏留空，面板展开/换行不改变视频容器尺寸；浮层空白处不拦截 Canvas 输入。面板保留挂载。
-- 工具栏面板与入口使用 160ms opacity 过渡；面板收起时立即设 inert/aria-hidden 并禁用指针，淡出结束后 CSS visibility 隐藏，不用 display:none 截断动画。快速反向切换由 CSS 接续当前透明度，减少动态效果偏好下取消过渡。
+- 鸿蒙和 USB iPhone 投屏共用双滑杆按钮和工具面板。按钮通过 React portal 挂到 body，常驻标题栏。独立窗口在 macOS 靠右、Windows 靠左，距边缘 8 个逻辑像素；合并窗口的按钮靠各自分栏右侧。面板在按钮下方同侧展开，浮层空白处允许画面输入。Tab 可进入面板，Escape 收起并将焦点还给入口。鼠标离开工具区 2 秒后自动收起面板，键盘操作或编辑选择框期间暂停计时。
+- 工具面板使用 160ms opacity 过渡；面板收起时立即设 inert/aria-hidden 并禁用指针，淡出结束后 CSS visibility 隐藏，不用 display:none 截断动画。快速反向切换由 CSS 接续当前透明度，减少动态效果偏好下取消过渡。
 - 画质只提供原画（scale=1）和流畅（scale=0.5），不承诺固定FPS；选择框保留原生语义，使用可样式化picker统一毛玻璃外观。screencast/store.ts在初始化捕获前按原生整数缩放档位兼容旧比例（0.5/0.6→0.5，0.7～1→1），非法值默认原画；切换只保存规范值，同档位不重启。
 - ScreencastClient.getCaptureStats返回当前generation的成功Canvas绘制计数和实际格式，start/destroy清空。Toolbar仅展开时按1秒interval与performance.now差值计算FPS，generation改变/未出帧显示等待或破折号，无新增帧归零；收起/卸载清理interval。它不是编码目标或显示器呈现速率，无额外设备采集/IPC或逐帧React更新。状态和画质成组换行，控件统一28px垂直居中；选择框禁用Luna旧三角，仅使用单个可样式化picker箭头。
 - 工具栏已移除 T 文本输入按钮、prompt 和等待状态，专用 `inputText` IPC/类型/preload 桥接也已删除；文本统一由局部键盘与 `screencastInput` 会话接口发送。`test/text-input-toolbar.test.cjs` 保留工具栏显隐、焦点和 FPS 回归，原弹窗相关用例随已删除功能移除。
@@ -217,6 +217,8 @@ Canvas pointer 事件
 
 `src/main/automation/profile.ts` 在主入口最先配置产品名和显式 profile，必须早于 store 和单实例锁。`src/main/index.ts` 在设备初始化后建立 `runtime.ts`/`service.ts`/`server.ts`，`lifecycle.ts` 负责启动中退出和正常关闭。GUI IPC 仍保持既有校验，自动化只通过已注册 schema 调用；已开放状态、发现、会话 lease、截图和输入。`controller.ts`/`sessions.ts` 共享 GUI 与自动化 owner；窗口通过注入的 hooks 保留 sender 检查，GUI 关窗若有 lease 则隐藏；实际销毁才释放。`frameBridge.ts` 仅向已注册当前 mainFrame 请求画布截图，renderer `AutomationFrameSource.ts` 记录真实呈现序号/时间，`frames.ts` 保留已导出引用与动作后屏障。Android/Harmony 输入进入同设备门禁，Harmony trusted API 绑定真实捕获 lease；不伪造 IPC event。`wire.ts` 的有界二进制响应由 CLI 原子落盘。`src/common/automation/` 为机器契约及能力，`src/cli/` 复用鉴权传输但不加载设备库。`script/build-cli.mjs` 生成独立客户端包，`script/build.mjs` 纳入该步骤。当前范围与定位见 [维护记录](../../../../docs/maintenance/agent-automation.md)。
 
+设备工作区命令按发现记录中的平台和 transport 分派。`automation/adapters/androidTools.ts` 复用 Android GUI 后端，USB iOS 概览复用 lockdown 查询。`screen.snapshot` 导出设备原图，`screen.capture` 生成会话 frameId。`mirrors.*` 复用主窗口的布局与聚焦函数。
+
 自动化 Harmony 工具通过 `DeviceOperationContext` 把目标和有限 shell/host 调用传给原 hdc/bundle/base 业务函数。查询不另写解析器，apps.info 仅读设备元数据；应用写操作核对退出/成功标记，不自动重试。`hdc/hostCommand.ts` 使用参数数组、显式 endpoint/target 和有界子进程清理；`automation/adapters/installSource.ts` 从验证过的文件描述符创建私有 HAP 暂存。GUI 未传 context 时保留原业务路径。
 
 `installSource.ts` 返回设备结果 value 与独立 cleanupConfirmed，清理异常不覆盖设备结果；harmonyTools 将确认安装和清理状态分别交付。`sessions.ts` 按 leaseId 保留释放记录至少五分钟，并在后台关闭未结束时拒绝新 owner/操作授权。GUI 遥控器键仍经过统一输入门禁，保留既有方向、确定及应用切换键码。
@@ -229,9 +231,19 @@ Canvas pointer 事件
 
 自动化坐标校验延伸到派发点：AndroidMirror.input 的内部 expectedGeometry 由 nativeMirrors.inputBackend 绑定原截图尺寸，设备队列执行时再核对，释放不受新几何阻断；Harmony adapter 接受缩放但检查图像方向/比例，并在非释放触摸前有界读取实际尺寸。GUI IPC不接收expectedGeometry，自动化不伪造GUI sender。
 
+Android 投屏画面拖入 APK 时通过 `nativeMirrorInstallApk` IPC 安装。主进程按发送窗口和主文档绑定正在运行的 AndroidMirror；每个后端串行复用自己的 ADB 连接，通过 sync 上传独立临时文件、执行 `pm install -r` 并清理。合并分栏沿用同一 WebContents。
+
+多端投屏的设备行和会话行共用 `devices/DeviceIcon.tsx`。Android 在 USB 枚举时读取厂商名称，鸿蒙从已有 `param get` 结果取品牌，两者通过可选的 `ITarget.brand`、`MirrorSession.brand` 传递。iOS 设备按平台匹配 Apple，其余设备依次匹配厂商、型号名称和默认手机图标。离线图形在同目录 `brandArtwork.ts`，来源见 `vendor/manifest.json`。
+
+主窗口按 `overviewTarget` 路由安卓七项工具。Preload 按设备 key 或流 ID 的 `android:` 前缀选用对应 IPC，`devices/androidTools.ts` 校验主窗口文档，注册应用/进程、截图/布局、终端/日志及 WebView 处理器。`devices/android.ts` 按 USB 设备共享连接，工作区、投屏和各操作独立持有并释放。应用元数据由内置 scrcpy JAR 中的 `WorkspaceApps` 分批读取；更新 Java 源码后运行 `npm run build:backends -- --android`。若设备限制该入口，应用面板回退为 shell 元数据与默认图标。布局导出保留 UI Automator XML；前台应用的可调试 WebView 通过窗口专用的本地回环 WebSocket 中继接入 DevTools。
+
+Android Shell 绑定会话后通过 `android:resizeShell` 同步 xterm 的行列数，窗口变化时继续更新 shell-v2 PTY。旧协议 PTY 继续支持读写。主窗口重载、崩溃或退出时，`androidStreams.ts` 取消仍在认证或打开的 Shell 和 Logcat，清理迟到的子进程，并释放各会话持有的 ADB 连接份额。
+
+Android 投屏通过独立的 scrcpy 会话 ID 和临时 JAR 路径启动。`AndroidMirrorAdb` 跟踪本次上传、服务进程、视频和控制连接的 ADB socket。关闭窗口或启动超时时会关闭这些 socket，迟到的打开结果也会关闭，工作区持有的连接可继续使用。
+
 原生投屏失败的 `MirrorSession/NativeMirrorInfo.connectionIssue` 为固定分类，不承载原始异常：Android ACCESS/BUSY通过nativeMirrorState/info IPC给renderer双语提示；重试/恢复清除。直接 USB 仍由后端独占，不自动 detach 其他 ADB；认证前 ACCESS/BUSY 可经 `devices/androidServer.ts` 复用已运行的本机 ADB，按 USB 序列号匹配并固定 transport ID，关闭只回收自己的 socket。共享window.ts的延迟位置保存及ready兜底必须先核对窗口存活。真实Codex宿主探针为 `script/check-automation-codex.mjs`，其结果与SDK模拟测试分开。
 
-合并投屏由 `main/window/mergedMirrors.ts` 把各独立窗口原有的 `mirrorView` 移入同一个 BrowserWindow，并按设备比例与 32 个逻辑像素的可见标题高度设置 bounds。macOS 将各视图顶边向上移 28 个逻辑像素，文档内部等量下移标题和按钮，AppKit 的标题栏命中区域落在可见内容外；HTML 全屏时视图填满宿主。独立与合并始终使用同一个 WebContents 绑定会话、解码、工具栏和输入队列。布局改变时只更新各视图父级、标题和尺寸。原生菜单回调发回打开菜单的文档，菜单坐标包含设备视图在宿主窗口内的偏移。
+合并投屏由 `main/window/mergedMirrors.ts` 把各独立窗口原有的 `mirrorView` 移入同一个 BrowserWindow，并按设备比例与 44 个逻辑像素的可见标题高度设置 bounds。macOS 将各视图顶边向上移 28 个逻辑像素，文档内部等量下移标题和按钮，AppKit 的标题栏命中区域落在可见内容外；HTML 全屏时视图填满宿主。独立与合并始终使用同一个 WebContents 绑定会话、解码、工具栏和输入队列。新建镜像时由 `main/window/mirrorTitle.ts` 根据设备名、型号和系统分配唯一标题，独立窗口使用 `MirrorTarget.mirrorTitle`，合并分栏使用 `MirrorSource.heading` 的设备名和型号／系统两行，主进程将标题高度一并发给视图。拆分时将视图挂回各自窗口并恢复标题与尺寸，批量显示后仅激活一个窗口。独立窗口的焦点通知只同步界面状态，避免再次激活镜像文档而争抢焦点。原生菜单回调发回打开菜单的文档，菜单坐标包含设备视图在宿主窗口内的偏移。
 
 投屏来源的 `claimGui` 回调在聚焦现有窗口时声明 GUI 所有权。选择合并中的设备会恢复宿主、退出其他设备的 HTML 全屏，再将键盘焦点交给所选设备的 WebContents。F12 直接打开触发快捷键的文档的开发者工具。自动化最后一个 lease 释放后，GUI 已接管的会话继续运行。iPhone 手动准备期间，同一设备的自动重连暂停，准备成功后由设置对话框重新打开会话。Android 临时概览连接单独保留清理所有权，关闭失败后必须重试释放，其他读取或投屏连接才能再次取得 USB。
 
@@ -247,7 +259,7 @@ USB iOS 的 `ios:<UDID>` 与 `ios:airplay-receiver` 分开。`ios-usbmux.connect
 
 `nativeMirrorVideo` 为单一窗口 owner 可调用的布尔 IPC，通过原自动化输入队列互斥；`NativeMirrorFrame.format=png` 与 H.264 共用 FrameGate。USB GUI 输入附 `display`（实际显示的尺寸/方向）；自动化走完整批次 `iosInput`，不模拟 GUI pointer 事件。`AutomationFrameSource` 保留方向用于拒绝过期坐标。AirPlay 不提供输入。源码构建脚本与使用限制见 [USB 文档](../../../../docs/scrcpy-plus/ios-usb-wda.md)。
 
-USB iOS 原生投屏的运行画面与 Android 共用无内边距布局，不常驻设备名/连接状态。`native-mirror/Toolbar.tsx` 与 Harmony 共用 `screencast/components/MirrorToolsPanel.tsx` 的操作区、状态区及样式，以标题栏右侧 portal 调节图标作为常驻入口，提供 Home 和设置图标，在状态区通过下拉框显式选择 ReplayKit 视频或 WDA 截图；展开不改变 Canvas 布局或窗口 fit inset。错误/断连提示仍保留。
+USB iOS 原生投屏的运行画面与 Android 共用无内边距布局，不常驻设备名/连接状态。`native-mirror/Toolbar.tsx` 与 Harmony 共用 `screencast/components/MirrorToolsPanel.tsx` 的操作区、状态区及样式，以标题栏的双滑杆图标作为常驻入口，提供 Home 和设置图标，在状态区通过下拉框显式选择 ReplayKit 视频或 WDA 截图；展开不改变 Canvas 布局或窗口 fit inset。错误/断连提示仍保留。
 
 原生交互式投屏的连接中/失败/断连提示采用绝对定位浮层，不参与 Canvas fit inset；断连旧帧变暗。iOS 只读观察最多连续失败三次后停止，恢复不重放写入。旧 WDA session 清理失败时，必须由 GET status 确认 ready 且旧 session 已消失后才能释放归属，无法确认则继续保留失败。
 
@@ -259,7 +271,7 @@ USB iOS GUI 的 `NativeInputFlow` 在 renderer 保持一个在途输入 IPC，�
 
 成功的 iOS 发现结果由 `devices/index` 交给 `nativeMirrors.reconcileIos`。USB 缺席不销毁窗口，保留 cleanup 所有权；同一 ready device key 重现后串行关闭旧后端、重开并按之前模式恢复视频（共享输入队列）。旧后端迟到的 frame/state 不得更新新会话，关闭后的窗口不得因发现事件复活。视频 stop 失败必须由 ready + standalone GET 确认精确 capture ID 不存在，不能凭 404 或换了 WDA session 就假定资源已清理。自动化 connected 恢复只解除 error/disconnected 至 starting，仍等待新的 renderer presentation；renderer 同步重置失败输入流。
 
-USB iPhone 概览由 `devices/ios-usbmux.getIosOverview` 处理，仅通过 lockdown 获取固定字段，8 秒总超时，和 WDA/投屏生命周期独立。Store 恢复和选择允许 USB iPhone，Android/iOS 的鸿蒙专用导航均禁用；实际未返回的字段显示未知，不猜测硬件参数。
+USB iPhone 概览由 `devices/ios-usbmux.getIosOverview` 处理，仅通过 lockdown 获取固定字段，8 秒总超时，和 WDA/投屏生命周期独立。Store 恢复和选择允许 USB iPhone，iOS 的设备工具导航禁用，安卓七项工具按设备 key 走 ADB；实际未返回的字段显示未知，不猜测硬件参数。
 
 USB iOS 曾经连接成功后，即使 USB 发现始终在线，后端 disconnected/error 也标记 reconnectPending；设备轮询串行重建并保留 videoRequested。首次 WDA 准备失败不自动重复创建会话。已绑定的专用 WDA 在旧会话清理失败或连接准备返回状态未知时，由 nativeMirror 调用 ios-provisioning 的 recoverRunner。设备 helper 通过 USB 再次探测状态，仅在持续无响应时按设备绑定精确重启 Runner；普通巡检不触发替换。恢复仍需确认旧资源清理，再在同一窗口重建投屏。USB 投屏重建后，若请求了视频且后端已清理失败的 capture 并恢复截图，设备轮询可间隔至少五秒串行重试 ReplayKit，最多三次。nativeMirrorVideo IPC 的 decode-error 原因保留用户的视频选择；手动关闭视频则取消重试。
 

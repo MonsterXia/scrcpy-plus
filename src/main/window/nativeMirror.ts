@@ -4,7 +4,8 @@ import type { IosSetupAction } from 'common/iosProvisioning'
 import type { AutomationWindowHooks, AutomationWindowObserver } from '../automation/windowHooks'
 import { ipcMain, screen } from 'electron'
 import { randomUUID } from 'node:crypto'
-import type { ITarget, MirrorSession, NativeMirrorInput } from 'common/types'
+import { createMirrorTarget } from './mirrorTitle'
+import type { ITarget, MirrorTarget, MirrorSession, NativeMirrorInput } from 'common/types'
 import * as windows from 'share/main/lib/window'
 import { AndroidMirror } from '../lib/devices/android'
 import { IosMirror } from '../lib/devices/ios'
@@ -16,7 +17,7 @@ const manualSetupCancelled = new Error('cancelled')
 
 interface Session {
   info: MirrorSession
-  target: ITarget
+  target: MirrorTarget
   window: windows.MirrorWindow
   contents: Electron.WebContents
   backend?: AndroidMirror | AirplayMirror | IosMirror
@@ -59,7 +60,7 @@ class NativeMirrors {
   list() { return [...this.sessions.values()].map(session => ({ ...session.info })) }
   getWindows() { return [...this.sessions.values()].filter(session => !session.stopping && !session.window.isDestroyed()).map(session => session.window) }
   getSources() { return [...this.sessions.values()].filter(session => !session.stopping && !session.window.isDestroyed())
-    .map(session => ({ window: session.window, platform: session.target.platform!, deviceKey: session.info.deviceKey,
+    .map(session => ({ window: session.window, platform: session.target.platform!, deviceKey: session.info.deviceKey, heading: session.target.mirrorHeading,
       claimGui: () => session.automation?.guiOpened(false) })) }
   private trackRecovery(session: Session, work: Promise<void>) {
     const recovery = work.catch(() => {}).finally(() => {
@@ -133,8 +134,9 @@ class NativeMirrors {
     })
     const contents = win.mirrorView?.webContents ?? win.webContents
     const session: Session = { info: { id, deviceKey: key, name: receiver ? 'Scrcpy Plus' : target.name,
-      platform: target.platform!, state: 'starting' }, target: receiver
-      ? { ...target, key, name: 'AirPlay', connectionId: undefined, transport: 'receiver' } : { ...target },
+      brand: target.brand, platform: target.platform!, state: 'starting' },
+      target: createMirrorTarget(receiver ? { ...target, key, name: 'AirPlay', connectionId: undefined, transport: 'receiver' } : target,
+        Array.from(this.sessions.values(), session => session.target.mirrorTitle)),
       window: win, contents, ready: false, gate: new FrameGate(), setupCalls: new Set(), videoRequested: target.platform === 'ios' && target.transport === 'usb' }
     this.sessions.set(id, session)
     session.automation = this.automationHooks?.({ target: session.target, window: win, contents, gui, close: () => this.stop(id) })
@@ -341,6 +343,13 @@ class NativeMirrors {
       if (restart !== undefined && typeof restart !== 'boolean') throw new Error('Invalid reconnect request')
       if (restart && !session.starting) this.state(session, 'disconnected')
       return this.open(session)
+    })
+    ipcMain.handle('nativeMirrorInstallApk', (event, filePath: string) => {
+      const session = this.owner(event)
+      if (session.target.platform !== 'android' || session.info.state !== 'running' || !(session.backend instanceof AndroidMirror)) {
+        throw new Error('Android installation unavailable')
+      }
+      return session.backend.installApk(filePath).then(() => windows.sendTo('main', 'bundleInstalled', session.target.key))
     })
     ipcMain.handle('nativeMirrorVideo', (event, enabled: boolean, reason?: 'decode-error') => {
       const session = this.owner(event)

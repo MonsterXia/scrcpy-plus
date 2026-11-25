@@ -63,6 +63,7 @@ export default observer(function Application() {
   } | null>(null)
 
   const { target } = store
+  const android = target?.platform === 'android'
 
   useEffect(() => {
     const state = { active: true, running: false, pending: false }
@@ -115,7 +116,7 @@ export default observer(function Application() {
             store.application.sysBundle,
           )
           if (!isCurrent()) return
-          const chunks = chunk(bundles, 5)
+          const chunks = chunk(bundles, android ? 64 : 5)
           let bundleInfos: IBundleInfo[] = []
           for (let i = 0, len = chunks.length; i < len; i++) {
             const chunk: string[] = chunks[i]
@@ -192,7 +193,11 @@ export default observer(function Application() {
         store.target?.key === connectKey &&
         actionEpoch.current === epoch,
       )
-    if (!isCurrent() || actionLock.current) return
+    if (
+      !isCurrent() ||
+      actionLock.current ||
+      (action === 'cleanCache' && info.supportsCleanCache === false)
+    ) return
     actionLock.current = true
     setActionBusy(true)
     try {
@@ -263,15 +268,17 @@ export default observer(function Application() {
           'cleanData',
           'uninstall',
         ] as BundleAction[]
-      ).map((action) => ({
-        label: labels[action],
-        enabled:
-          !actionLock.current &&
-          (action !== 'open' || Boolean(info.mainAbility)),
-        click: () => {
-          if (current()) return runAction(action, info)
-        },
-      })),
+      )
+        .filter(action => action !== 'cleanCache' || info.supportsCleanCache !== false)
+        .map((action) => ({
+          label: labels[action],
+          enabled:
+            !actionLock.current &&
+            (action !== 'open' || Boolean(info.mainAbility)),
+          click: () => {
+            if (current()) return runAction(action, info)
+          },
+        })),
     ]
     contextMenu(e, template)
   }
@@ -299,10 +306,9 @@ export default observer(function Application() {
         versionName: info.versionName,
         vendor: info.vendor,
         apiTargetVersion: info.apiTargetVersion,
-        installTime: dateFormat(
-          new Date(info.installTime),
-          'yyyy-mm-dd HH:MM:ss',
-        ),
+        installTime: info.installTime
+          ? dateFormat(new Date(info.installTime), 'yyyy-mm-dd HH:MM:ss')
+          : '',
         releaseType: info.releaseType,
       })),
     [filteredInfos],
@@ -431,7 +437,7 @@ export default observer(function Application() {
             onContextMenu(e, (node.data as any).info)
           }}
           filter=""
-          columns={columns.get()}
+          columns={android ? androidColumns.get() : columns.get()}
           data={gridData}
           selectable={true}
           uniqueId="bundleName"
@@ -646,7 +652,9 @@ export default observer(function Application() {
                     ? 'workspaceConnectToStart'
                     : query
                       ? 'applicationSearchHint'
-                      : 'applicationInstallHint',
+                      : android
+                        ? 'androidApplicationInstallHint'
+                        : 'applicationInstallHint',
                 )}
               </p>
             </div>
@@ -657,11 +665,14 @@ export default observer(function Application() {
             </div>
           )}
         </div>
-        <footer className={Style.footer}>{t('applicationDropHint')}</footer>
+        <footer className={Style.footer}>
+          {t(android ? 'androidApplicationDropHint' : 'applicationDropHint')}
+        </footer>
       </div>
       {bundleInfo && (
         <BundleInfoModal
           bundleInfo={bundleInfo}
+          android={android}
           visible={bundleInfoModalVisible}
           busy={actionBusy}
           returnFocus={detailsOpener.current}
@@ -727,3 +738,7 @@ const columns = computed(() => [
     weight: 10,
   },
 ])
+
+const androidColumns = computed(() => columns.get().filter(
+  column => column.id !== 'vendor' && column.id !== 'releaseType',
+))

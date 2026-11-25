@@ -146,7 +146,8 @@ try {
     await page.waitForFunction(() => document.querySelectorAll('[data-session-row]').length === 4)
     await page.locator('[data-session-row="android:a"] [data-action="focus"]').click()
     assert.equal(await application.evaluate(() => globalThis.__plusFocused.at(-1)), 'android:a')
-    for (const layout of ['side-by-side', 'merged', 'independent']) {
+    assert.equal(await page.locator('[data-layout]').count(), 2)
+    for (const layout of ['merged', 'independent']) {
       await page.locator(`[data-layout="${layout}"]`).click()
       await page.waitForFunction(value => document.querySelector(`[data-layout="${value}"]`)?.getAttribute('aria-pressed') === 'true', layout)
       const request = await application.evaluate(() => globalThis.__plusLayouts.at(-1))
@@ -162,7 +163,7 @@ try {
     await page.locator('[data-navigation="overview"]').click()
     await page.locator('#workspace-device').selectOption('android:a')
     await page.waitForFunction(() => document.querySelector('[data-overview-field="ohosVersion"]')?.textContent === 'Android 16 (API 36)')
-    assert.equal(await page.locator('[data-navigation="shell"]').isDisabled(), true)
+    assert.equal(await page.locator('[data-navigation="shell"]').isDisabled(), false)
     assert.equal(await page.locator('#workspace-device option').count(), 7)
     const readCount = await application.evaluate(() => globalThis.__plusOverviewReads.length)
     await page.evaluate(() => { window.__overviewField = document.querySelector('[data-overview-field="name"]') })

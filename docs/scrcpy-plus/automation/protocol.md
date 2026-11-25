@@ -56,4 +56,4 @@ Harmony 关闭时会取消该捕获 scope 的原生启动/升档首帧等待，�
 
 ## 有限文件结果
 
-logs.capture/layout.dump 使用 `application/vnd.scrcpy-plus.blob`，同样为 4 字节 envelope 长度 + JSON + 原始字节；data.artifact 包含 artifactId、mimeType、byteLength，日志另含 durationMs/truncated。字节数最多 1MiB，允许空日志；截图仍要求非空。CLI output 不进入服务参数。
+screen.snapshot、logs.capture 和 layout.dump 使用 `application/vnd.scrcpy-plus.blob`，同样为 4 字节 envelope 长度 + JSON + 原始字节；data.artifact 包含 artifactId、mimeType、byteLength，日志另含 durationMs/truncated。日志与布局最多 1 MiB，允许空日志。独立截图最多 32 MiB，artifact 的 MIME 类型为 image/png 或 image/jpeg，不携带 frameId。CLI output 不进入服务参数。

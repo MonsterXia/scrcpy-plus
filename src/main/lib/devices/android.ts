@@ -1,18 +1,21 @@
 import { Adb, AdbDaemonTransport } from '@yume-chan/adb'
-import type { AdbCredentialStore, AdbPrivateKey } from '@yume-chan/adb'
+import type { AdbCredentialStore, AdbPrivateKey, AdbSocket } from '@yume-chan/adb'
 import { AdbDaemonWebUsbDeviceManager } from '@yume-chan/adb-daemon-webusb'
 import type { AdbDaemonWebUsbDevice } from '@yume-chan/adb-daemon-webusb'
 import type { AndroidKeyCode } from '@yume-chan/scrcpy'
 import { AdbScrcpyClient, AdbScrcpyOptions3_3_3 } from '@yume-chan/adb-scrcpy'
 import { ReadableStream, WritableStream } from '@yume-chan/stream-extra'
 import { createRequire } from 'node:module'
-import { generateKeyPairSync, randomUUID } from 'node:crypto'
-import { readFile, writeFile, mkdir, link, unlink } from 'node:fs/promises'
+import { generateKeyPairSync, randomInt, randomUUID } from 'node:crypto'
+import { constants } from 'node:fs'
+import type { FileHandle } from 'node:fs/promises'
+import { open, readFile, writeFile, mkdir, link, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import type { ITarget, NativeMirrorInput } from 'common/types'
 import { getUserDataPath, resolveResources } from 'share/main/lib/util'
 import type { NativeFrame } from './media'
 import { readAndroidOverview } from './androidOverview'
+import { closeAndroidChannel, readAndroidShellOutput, waitForAndroidOperation } from './androidShell'
 import { connectLocalAdb } from './androidServer'
 
 export class FileAdbCredentials implements AdbCredentialStore {
@@ -130,6 +133,7 @@ async function usbDevices() {
 export async function discoverAndroid(): Promise<ITarget[]> {
   return (await usbDevices()).map(device => ({
     key: `android:${usbIdentity(device)}`, connectionId: usbIdentity(device), name: device.name || device.serial,
+    brand: device.raw.manufacturerName || undefined,
     platform: 'android', transport: 'usb', state: 'ready', ohosVersion: '', sdkVersion: '',
   }))
 }
@@ -142,63 +146,117 @@ async function deadline<T>(promise: Promise<T>, cancel: () => void, milliseconds
     })])
   } finally { clearTimeout(timer) }
 }
-const activeMirrors = new Map<string, AndroidMirror>()
-// A failed temporary teardown must remain owned until a later caller drains it.
-const temporaryConnections = new Map<string, AndroidMirror>()
+const connections = new Map<string, AndroidConnection>()
 const overviewReads = new Map<string, Promise<Awaited<ReturnType<typeof readAndroidOverview>>>>()
+
+export async function acquireAndroidAdb(key: string, signal?: AbortSignal) {
+  signal?.throwIfAborted()
+  if (typeof key !== 'string' || !key.startsWith('android:') || key.length <= 8) throw Error('Invalid Android device')
+  let connection = connections.get(key)
+  while (connection?.closed) {
+    const timeout = AbortSignal.timeout(30000)
+    const wait = signal ? AbortSignal.any([signal, timeout]) : timeout
+    const retiring = connection
+    await waitForAndroidOperation(wait, () => retiring.retire())
+    signal?.throwIfAborted()
+    connection = connections.get(key)
+  }
+  if (!connection) {
+    connection = new AndroidConnection(key)
+    connections.set(key, connection)
+  }
+  const owner = connection
+  owner.users++
+  let released = false
+  const release = async () => {
+    if (!released) { released = true; owner.users-- }
+    if (!owner.users) await owner.close()
+  }
+  try {
+    const adb = signal ? await waitForAndroidOperation(signal, () => owner.connect()) : await owner.connect()
+    return { adb, release, installApk: (filePath: string, beforeInstall?: () => void, signal?: AbortSignal) => owner.installApk(filePath, beforeInstall, signal) }
+  } catch (error) {
+    await release()
+    throw error
+  }
+}
+
+export async function withAndroidAdb<T>(key: string, operation: (adb: Adb) => Promise<T>, signal?: AbortSignal) {
+  const lease = await acquireAndroidAdb(key, signal)
+  try { signal?.throwIfAborted(); return await operation(lease.adb) }
+  finally { await lease.release() }
+}
+
+export async function installAndroidApk(key: string, filePath: string, beforeInstall?: () => void, signal?: AbortSignal) {
+  const lease = await acquireAndroidAdb(key, signal)
+  try { await lease.installApk(filePath, beforeInstall, signal) }
+  finally { await lease.release() }
+}
+
 export function getAndroidOverview(target: ITarget) {
   const pending = overviewReads.get(target.key)
   if (pending) return pending
-  const request = (async () => {
-    let active = activeMirrors.get(target.key)
-    // Closing still owns USB. Do not open a temporary connection until every
-    // native handle has drained; retrying close also handles cleanup failures.
-    if (active?.isClosed()) { await active.close(); active = undefined }
-    if (!active) await temporaryConnections.get(target.key)?.close()
-    const connection = active || new AndroidMirror(target)
-    if (!active) temporaryConnections.set(target.key, connection)
-    try { return await connection.overview() }
-    finally { if (!active) await connection.close() }
-  })().finally(() => {
-    if (overviewReads.get(target.key) === request) overviewReads.delete(target.key)
-  })
+  const request = withAndroidAdb(target.key, readAndroidOverview).finally(() => overviewReads.delete(target.key))
   overviewReads.set(target.key, request)
   return request
 }
 
-export class AndroidMirror {
+const MAX_INSTALL_DURATION_MS = 600000
+const APK_CLEANUP_TIMEOUT_MS = 5000
+
+async function pushApk(adb: Adb, file: FileHandle, remote: string, signal: AbortSignal) {
+  signal.throwIfAborted()
+  const channel = adb.sync()
+  const source = file.createReadStream()
+  try {
+    await waitForAndroidOperation(signal, async () => {
+      const sync = await channel
+      signal.throwIfAborted()
+      // A local read error can precede ADB's DONE packet.
+      await Promise.race([
+        new Promise<never>((_, reject) => source.once('error', reject)),
+        sync.write({ filename: remote, permission: 0o644, file: ReadableStream.from<Uint8Array>(source) }),
+      ])
+    })
+  } finally {
+    source.destroy()
+    // A late channel open still gets its own dispose, even after the cleanup budget.
+    const cleanup = channel.then(sync => sync.dispose(), () => {})
+    await closeAndroidChannel(() => cleanup)
+  }
+}
+
+class AndroidConnection {
   private device?: AdbDaemonWebUsbDevice
   private adb?: Adb
   private connecting?: Promise<Adb>
-  private client?: AdbScrcpyClient<AdbScrcpyOptions3_3_3<true>>
-  private closed = false
+  private handshake?: Promise<unknown>
+  private drained?: Promise<void>
   private closing?: Promise<void>
-  private width = 0
-  private height = 0
-  private inputTail = Promise.resolve()
-  private pendingInput = 0
-  private touchGeneration = 0
-  private releaseQueuedFor: number | undefined
-  constructor(private target: ITarget) {}
-  isClosed() { return this.closed }
-  private check() { if (this.closed) throw new Error('Android session closed') }
-  private connect(): Promise<Adb> {
+  private installTail = Promise.resolve()
+  users = 0
+  closed = false
+  constructor(private key: string) {}
+  private check() { if (this.closed) throw new Error('Android connection closed') }
+  connect(): Promise<Adb> {
     this.check()
     if (this.adb) return Promise.resolve(this.adb)
     if (!this.connecting) this.connecting = (async () => {
-      const temporary = temporaryConnections.get(this.target.key)
-      if (temporary && temporary !== this) await temporary.close()
       this.check()
-      this.device = (await usbDevices()).find(device => usbIdentity(device) === this.target.connectionId)
+      const devices = await usbDevices()
+      this.check()
+      this.device = devices.find(device => usbIdentity(device) === this.key.slice(8))
       if (!this.device) throw new Error('Android device disconnected')
       configureAndroidUsb(this.device.raw)
       this.check()
       let connection: Awaited<ReturnType<AdbDaemonWebUsbDevice['connect']>>
       try {
-        connection = await deadline(this.device.connect().then(async connection => {
+        const opening = this.device.connect().then(async connection => {
           if (this.closed) { await this.device?.raw.close(); this.check() }
           return connection
-        }), () => { void this.device?.raw.close() })
+        })
+        this.handshake = opening
+        connection = await deadline(opening, () => {})
       } catch (error) {
         // ADB/Android Studio can own this USB interface. Share that local server
         // only before authentication/writes, and only for the observed USB serial.
@@ -211,48 +269,162 @@ export class AndroidMirror {
         return this.adb
       }
       this.check()
-      const transport = await deadline(AdbDaemonTransport.authenticate({
+      const authenticating = AdbDaemonTransport.authenticate({
         serial: this.device.serial, connection,
         credentialStore: new FileAdbCredentials(getUserDataPath('data/android-adbkey.pk8')),
       }).then(async transport => {
         if (this.closed) { await transport.close(); this.check() }
         return transport
-      }), () => { void this.device?.raw.close() })
+      })
+      this.handshake = authenticating
+      const transport = await deadline(authenticating, () => {})
       this.adb = new Adb(transport); this.check()
       return this.adb
 
-    })()
+    })().then(adb => {
+      const disconnected = () => { void this.close().catch(error => console.warn('Android disconnect cleanup failed', error)) }
+      adb.disconnected?.then(disconnected, disconnected)
+      return adb
+    })
     return this.connecting
   }
-  async overview() { return readAndroidOverview(await this.connect()) }
+  installApk(filePath: string, beforeInstall?: () => void, ownerSignal?: AbortSignal) {
+    const adb = this.adb
+    if (this.closed || !adb) return Promise.reject(new Error('Android session unavailable'))
+    if (typeof filePath !== 'string' || !path.isAbsolute(filePath) || path.extname(filePath).toLowerCase() !== '.apk') {
+      return Promise.reject(new Error('Expected a local APK file'))
+    }
+    const budget = AbortSignal.timeout(MAX_INSTALL_DURATION_MS)
+    const signal = ownerSignal ? AbortSignal.any([budget, ownerSignal]) : budget
+    const previous = this.installTail
+    const install = previous.then(async () => {
+      signal.throwIfAborted()
+      this.check()
+      const file = await open(filePath, constants.O_RDONLY | constants.O_NONBLOCK)
+      try {
+        if (!(await file.stat()).isFile()) throw new Error('Expected a regular APK file')
+        const remote = `/data/local/tmp/scrcpy-plus-${randomUUID()}.apk`
+        try {
+          await pushApk(adb, file, remote, signal)
+          signal.throwIfAborted()
+          this.check()
+          beforeInstall?.()
+          const result = (await readAndroidShellOutput(adb,
+            `pm install --user current -r ${remote}`, 64 * 1024, MAX_INSTALL_DURATION_MS, signal)).toString('utf8')
+          if (result.trim().split(/\r?\n/).pop()?.trim() !== 'Success') {
+            throw new Error(result.trim() || 'Android package manager returned no result')
+          }
+        } finally {
+          // Cleanup has its own budget even if the installation was cancelled.
+          await readAndroidShellOutput(adb, `rm -f ${remote}`, 4096, APK_CLEANUP_TIMEOUT_MS)
+            .catch(error => console.warn('Could not remove temporary APK', error))
+        }
+      } finally { await file.close() }
+    })
+    this.installTail = install.catch(() => {})
+    // Release queued callers promptly, but keep FIFO ordering for their successors.
+    return waitForAndroidOperation(signal, () => previous).then(() => install)
+  }
+  async retire() {
+    await this.close()
+    await this.drained
+  }
+  close(): Promise<void> {
+    if (this.closing) return this.closing
+    this.closed = true
+    this.closing = Promise.resolve().then(async () => {
+      try { await this.adb?.close() }
+      finally { await this.device?.raw.close() }
+      // A new owner may claim the same native USB handle after this entry is
+      // removed. Drain the interrupted handshake before allowing that claim.
+      this.drained = Promise.allSettled([this.connecting, this.handshake]).then(() => {
+        if (connections.get(this.key) === this) connections.delete(this.key)
+      })
+    }).catch(error => { this.closing = undefined; throw error })
+    return this.closing
+  }
+}
+
+type AndroidLease = Awaited<ReturnType<typeof acquireAndroidAdb>>
+
+// Tango creates sync, exec and forward sockets through this Adb instance.
+// Keep its ownership independent of workspace shells and the physical transport.
+class AndroidMirrorAdb extends Adb {
+  private sockets = new Set<AdbSocket>()
+  get hasOpenSockets() { return this.sockets.size > 0 }
+  constructor(shared: Adb, private signal: AbortSignal) { super(shared.transport) }
+  override async createSocket(service: string) {
+    this.signal.throwIfAborted()
+    const socket = await super.createSocket(service)
+    if (this.signal.aborted) {
+      await socket.close()
+      throw this.signal.reason
+    }
+    this.sockets.add(socket)
+    const remove = () => this.sockets.delete(socket)
+    void socket.closed.then(remove, remove)
+    return socket
+  }
+  override async close() {
+    await Promise.all(Array.from(this.sockets, async socket => {
+      await socket.close()
+      await socket.closed
+    }))
+  }
+}
+
+export class AndroidMirror {
+  private lease?: AndroidLease
+  private acquiring?: Promise<AndroidLease>
+  private installs = new Set<Promise<void>>()
+  private lifetime = new AbortController()
+  private mirrorAdb?: AndroidMirrorAdb
+  private pendingServerPath?: string
+  private client?: AdbScrcpyClient<AdbScrcpyOptions3_3_3<true>>
+  private closed = false
+  private closing?: Promise<void>
+  private width = 0
+  private height = 0
+  private inputTail = Promise.resolve()
+  private pendingInput = 0
+  private touchGeneration = 0
+  private releaseQueuedFor: number | undefined
+  constructor(private target: ITarget) {}
+  private check() { if (this.closed) throw new Error('Android session closed') }
+  private startupStep<T>(work: () => Promise<T>) {
+    const signal = AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(30000)])
+    return waitForAndroidOperation(signal, work)
+  }
   async start(frame: (frame: NativeFrame) => void, state: (state: string) => void) {
     try {
-      activeMirrors.set(this.target.key, this)
-      // A temporary overview may already own USB; let it finish and release it.
-      await overviewReads.get(this.target.key)?.catch(() => {})
       this.check(); state('authorizing')
-      const adb = await this.connect()
+      this.acquiring = acquireAndroidAdb(this.target.key, this.lifetime.signal)
+      this.lease = await this.acquiring
       this.check(); state('starting')
-      const server = await readFile(resolveResources('android/scrcpy-server'))
+      const server = await this.startupStep(() => readFile(resolveResources('android/scrcpy-server')))
       this.check()
-      // Each device has its own ADB transport and server process/socket namespace.
-      const serverPath = '/data/local/tmp/scrcpy-plus-server.jar'
-      await deadline(AdbScrcpyClient.pushServer(adb, new ReadableStream({
+      const adb = this.mirrorAdb = new AndroidMirrorAdb(this.lease.adb, this.lifetime.signal)
+      const scid = randomInt(0x80000000).toString(16)
+      const serverPath = this.pendingServerPath = `/data/local/tmp/scrcpy-plus-server-${scid}.jar`
+      await this.startupStep(() => AdbScrcpyClient.pushServer(adb, new ReadableStream({
         start(controller) { controller.enqueue(server); controller.close() },
-      }), serverPath), () => { void this.adb?.close() })
+      }), serverPath))
       this.check()
-      this.client = await deadline(AdbScrcpyClient.start(adb, serverPath,
-        new AdbScrcpyOptions3_3_3({ video: true, audio: false, control: true,
+      this.client = await this.startupStep(() => AdbScrcpyClient.start(adb, serverPath,
+        new AdbScrcpyOptions3_3_3({ scid, video: true, audio: false, control: true,
           videoCodec: 'h264', maxSize: 1920, maxFps: 60, tunnelForward: true })).then(async client => {
+        // The metadata read starts in Tango's constructor, including for a
+        // late client returned while its sockets are being closed.
+        void client.videoStream.catch(() => {})
         if (this.closed) { await client.close(); this.check() }
         return client
-      }),
-      () => { void this.adb?.close() })
+      }))
       this.check()
       const client = this.client
       void client.output.pipeTo(new WritableStream({ write() {} })).catch(() => {})
       if (client.clipboard) void client.clipboard.pipeTo(new WritableStream({ write() {} })).catch(() => {})
-      const video = await deadline(client.videoStream, () => { void this.adb?.close() }); this.check()
+      const video = await this.startupStep(() => client.videoStream); this.check()
+      this.pendingServerPath = undefined // The running scrcpy server unlinks its JAR.
       state('connected')
       void (async () => {
         try {
@@ -267,6 +439,12 @@ export class AndroidMirror {
         } catch { if (!this.closed) state('error') }
       })()
     } catch (error) { await this.close(); throw error }
+  }
+  installApk(filePath: string) {
+    if (this.closed || !this.lease) return Promise.reject(new Error('Android session unavailable'))
+    const install = this.lease.installApk(filePath, () => this.check(), this.lifetime.signal)
+    this.installs.add(install)
+    return install.finally(() => this.installs.delete(install))
   }
   input(message: NativeMirrorInput, expectedGeometry?: { width: number; height: number }) {
     if (this.closed || !this.client?.controller) return Promise.reject(new Error('Android control unavailable'))
@@ -306,13 +484,22 @@ export class AndroidMirror {
     if (this.closing) return this.closing
     this.closed = true
     this.closing = (async () => {
-      // Kill the phone server while its ADB transport is still writable.
-      // Concurrent native close calls can violate node-usb's borrow rules.
-      await deadline(Promise.resolve().then(() => this.client?.close()), () => {}, 2000).catch(() => {})
-      try { await this.adb?.close() }
-      finally { await this.device?.raw.close() }
-      if (activeMirrors.get(this.target.key) === this) activeMirrors.delete(this.target.key)
-      if (temporaryConnections.get(this.target.key) === this) temporaryConnections.delete(this.target.key)
+      this.lifetime.abort(new Error('Android session closed'))
+      // Close partial startup sockets even before Tango returns a server client.
+      let closeError: unknown
+      try {
+        await deadline(Promise.all([this.client?.close(), this.mirrorAdb?.close()]), () => {}, 2000)
+      } catch (error) { closeError = error }
+      if (this.pendingServerPath && this.lease) {
+        await readAndroidShellOutput(this.lease.adb, `rm -f ${this.pendingServerPath}`, 4096, 1500)
+          .then(() => { this.pendingServerPath = undefined },
+            error => console.warn('Could not remove Android mirror server', error))
+      }
+      // Dropped packages clean up their device-side staging files over this lease.
+      await Promise.allSettled(this.installs)
+      const lease = this.lease || await this.acquiring?.catch(() => undefined)
+      await lease?.release()
+      if (closeError && this.mirrorAdb?.hasOpenSockets) throw closeError
     })().catch(error => { this.closing = undefined; throw error })
     return this.closing
   }

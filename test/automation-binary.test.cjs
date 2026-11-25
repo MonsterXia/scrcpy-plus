@@ -13,3 +13,15 @@ test('malformed and oversized binary payloads fail before returning a frame',()=
  assert.throws(()=>encodeResult({ok:true,data:{frame:{},bytes:new Uint8Array(32*1024*1024+1)}}),{code:'INTERNAL'})
  assert.throws(()=>decodeResult(Buffer.from('{}'),'text/plain'),{code:'INTERNAL'})
 })
+
+test('device image artifacts have a distinct size limit and must contain bytes', () => {
+  const { encodeResult, decodeResult } = load('src/common/automation/wire.ts')
+  const bytes = Buffer.alloc(1024 * 1024 + 1)
+  const encode = (mimeType, bytes) => encodeResult({ ok: true, data: { artifact: { mimeType, byteLength: bytes.length }, bytes } })
+  for (const type of ['image/jpeg', 'image/png']) {
+    assert.throws(() => encode(type, Buffer.alloc(0)), { code: 'INTERNAL' })
+    const encoded = encode(type, bytes)
+    assert.equal(decodeResult(encoded.body, encoded.type).data.bytes.length, bytes.length)
+  }
+  assert.throws(() => encode('text/plain', bytes), { code: 'INTERNAL' })
+})

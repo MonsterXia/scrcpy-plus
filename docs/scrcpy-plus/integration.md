@@ -8,7 +8,7 @@ dev.1 合入商店空响应按应用缓存（避免后续图标被全局冷却�
 
 左侧顶部「多端投屏」保留独立入口，窄侧栏显示图标，展开侧栏显示名称。页面按“可用设备 → 勾选批量启动 → 正在投屏”组织；USB iOS 可作为独立设备启动，AirPlay 仍为单独接收器。明暗主题共用布局，仅改变语义颜色。
 
-侧栏不再单独提供设备选择器，选择器移入「概览」顶部，支持 Android、HarmonyOS 和 USB iPhone。`overviewTarget` 持久化概览选择；选中鸿蒙时同步原 `target`（供 HDC 工具使用），选中安卓或 iPhone 不会把其 key 传给 HDC。安卓和 iPhone 概览显示设备信息、启动投屏，其他鸿蒙专用工具入口禁用；恢复旧页面或程序选择受限页面时回到概览。AirPlay 接收器不进入概览。旧 `mirrorTarget` 配置仍兼容保留，投屏页批量选择使用本页稳定 key 集合，不读写工具选择，也不因选择变化停止已有会话。
+侧栏不再单独提供设备选择器，选择器移入「概览」顶部，支持 Android、HarmonyOS 和 USB iPhone。`overviewTarget` 持久化概览选择；选中鸿蒙时同步原 `target`（供 HDC 工具使用），选中安卓或 iPhone 不会把其 key 传给 HDC。选中安卓后可使用应用、截图、Shell、Logcat、进程、布局和 WebView 七个工具，操作跟随概览所选的 USB 设备。USB iPhone 提供概览和投屏，从受限页面切换到 iPhone 时回到概览。AirPlay 接收器不进入概览。旧 `mirrorTarget` 配置仍兼容保留，投屏页批量选择使用本页稳定 key 集合，不读写工具选择，也不因选择变化停止已有会话。
 
 概览只在设备 key/平台/连接状态改变时重置，五秒设备轮询产生同一设备的新对象不会清空内容或重读。`getDeviceOverview(key)` 根据当前发现的平台分派：鸿蒙复用原有限 HDC 读取，安卓执行固定只读 `getprop`、`uname -r`、`wm size`、`cat /proc/meminfo`。安卓有活动投屏时复用其 ADB 连接；无投屏时临时连接，读取后释放；停止中的连接完成清理后才允许临时连接。每条 shell 读取有超时与输出上限，超时仅取消该 shell，不关闭共享投屏连接。 USB iPhone 经 usbmux + lockdown 对显示字段逐项 GetValue，只读名称、系统/构建版本、产品/硬件型号、架构及序列号；总预算 8 秒，读取结束释放 socket，不创建 WDA session，不枚举完整属性字典。缺失字段显示未知，不以 UDID 冒充序列号。
 
@@ -18,7 +18,7 @@ dev.1 合入商店空响应按应用缓存（避免后续图标被全局冷却�
 
 | 平台 | 应用内实现 | 设备发现 | 投屏及操作 |
 | --- | --- | --- | --- |
-| Android | 本地 Tango TypeScript ADB/scrcpy 协议源码 + USB 库 + 从源码编译的 scrcpy 3.3.3 手机端服务 | 直接枚举 USB ADB 接口 | 应用内 H.264 画面、点击/拖动/滚动、系统键、键盘和文字粘贴 |
+| Android | 本地 Tango TypeScript ADB/scrcpy 协议源码 + USB 库 + 从源码编译的 scrcpy 3.3.3 手机端服务 | 直接枚举 USB ADB 接口 | 应用内 H.264 投屏、输入控制、APK 拖入安装及七项设备工具 |
 | Harmony | 保留原 HDC/uitestkit 与原生视频/JPEG 实现 | 原 HDC 监听 | 保留原投屏和输入能力；窗口绑定独立设备 |
 | iOS USB | 直接 usbmux + 固定源码 WDA/ReplayKit Runner | UDID 绑定的 USB 发现与连接 | 默认 H.264 连续视频、PNG 回退、点击/手势/文字；基本真机链路已验证，完整矩阵见 iOS USB 维护记录 |
 | iOS AirPlay | UxPlay/libplist/PlayFair/llhttp/mDNS 源码 Node-API 模块 | 手机发起 AirPlay 连接 | H.264 画面，不支持控制 |
@@ -58,7 +58,7 @@ npm start
 
 输出：
 
-- `resources/android/scrcpy-server`：固定版本 3.3.3，从仓库内 Java/AIDL 源码编译。
+- `resources/android/scrcpy-server`：基于 3.3.3，从仓库内 Java/AIDL 源码编译，含读取应用名称、图标和启动 Activity 的 `WorkspaceApps` 入口。
 - `resources/airplay/plus_airplay.node`：Node-API 8 模块，从仓库内 C/C++ 核心和桥接源码编译。
 - `resources/platform-backends.json`：服务版本、源码提交、主机平台/架构、文件大小及 SHA-256，供打包检查。
 
@@ -68,11 +68,11 @@ npm start
 
 在可用设备列表勾选 Android／HarmonyOS／USB iOS 设备后点击「启动所选」，或使用行内单台启动。已存在的会话只显示在正在投屏区；失败/断开的会话可重试，单台失败不丢失其他启动结果。关闭一台不会停止其他会话。iPhone 在单独的 iOS 无线投屏区开启接收器后，从手机「屏幕镜像」选择 Scrcpy Plus；未收到连接时明确显示等待。
 
-「独立窗口／并排／合并」直接调用 `applyMirrorLayout`，作用于全部实际活动窗口，与勾选待启动设备无关。后端保留带 key 过滤的接口兼容调用方，但本页不发送过滤范围。`getMirrorLayout` 读取合并窗口是否存在及上次排列后的窗口几何；窗口移动、数量变化或关闭合并窗口后不会继续显示失效的排列状态。「打开窗口」通过 `focusMirror(key)` 恢复/聚焦已有窗口；属于合并视图的设备聚焦合并窗口，不重新启动后端。实现为 `devices/Devices.tsx`、`main/window/mirrorLayout.ts`。
+「独立窗口／合并」直接调用 `applyMirrorLayout`，作用于全部实际活动窗口，与勾选待启动设备无关。后端保留带 key 过滤的接口兼容调用方，但本页不发送过滤范围。兼容接口返回旧的并排布局时，面板选中「独立窗口」。`getMirrorLayout` 读取合并窗口是否存在及上次排列后的窗口几何；窗口移动、数量变化或关闭合并窗口后不会继续显示失效的排列状态。「打开窗口」通过 `focusMirror(key)` 恢复/聚焦已有窗口；属于合并视图的设备聚焦合并窗口，不重新启动后端。实现为 `devices/Devices.tsx`、`main/window/mirrorLayout.ts`。
 
 三端可以同时投屏：安卓与鸿蒙保持各自 USB／HDC 连接，iPhone 通过同一局域网 AirPlay 连接。2026-11-05 三台真机同时出图与安卓独立重开的历史后端证据见 [并发证据](evidence/three-platform/live.json)；本次 UI 改造的模拟验收不替代新的真机验证。
 
-「合并」把每个独立窗口正在使用的 Electron `WebContentsView` 移入同一个窗口。Android、HarmonyOS、iOS 按此顺序共用画面高度，同系统多台设备各占一栏。视图贴齐内容区左、右和下边缘，相邻设备之间留 12 个逻辑像素。设备首帧、方向或数量变化时按实际比例调整窗口。每栏保留原解码器、输入焦点和平台工具栏，支持该连接在独立窗口中已有的点按、拖动、滚轮和键盘操作；AirPlay 仍仅支持查看。三个平台的标题栏高 32 个逻辑像素。鸿蒙和 USB iPhone 共用右侧的双滑杆按钮，点按展开对应的工具面板，再点关闭。两端展开后使用鸿蒙风格的图标工具栏。鸿蒙可以选择画质，USB iPhone 可以从「模式」下拉框切换 ReplayKit 视频和 WDA 截图，圆圈和齿轮分别用于返回主屏幕和打开 iPhone 设置。切回独立、并排或关闭合并窗口时，原视图回到对应窗口，会话继续运行。实现见 `src/main/window/mergedMirrors.ts` 和 `src/share/main/lib/window.ts`。见[三机真机验证](../maintenance/evidence/merged-live-controls-20261119.json)。
+「合并」把每个独立窗口正在使用的 Electron `WebContentsView` 移入同一个窗口。Android、HarmonyOS、iOS 按此顺序共用画面高度，同系统多台设备各占一栏。视图贴齐内容区左、右和下边缘，相邻设备之间留 12 个逻辑像素。设备首帧、方向或数量变化时按实际比例调整窗口。每栏保留原解码器、输入焦点和平台工具栏，支持该连接在独立窗口中已有的点按、拖动、滚轮和键盘操作；AirPlay 仍仅支持查看。独立窗口标题显示设备名称、可用型号和系统。合并分栏首行显示设备名，次行显示型号和系统，相同字段只显示一次。重名窗口按打开顺序加上 #2、#3 等编号，切换布局时保留。合并栏头高 44 个逻辑像素，窄栏可悬停查看完整标题。鸿蒙和 USB iPhone 共用常驻的双滑杆按钮。合并时按钮位于各栏右侧，独立时在 macOS 右上角、Windows 左上角，点按在按钮下方同侧展开面板，再点收起。两端展开后使用鸿蒙风格的图标工具栏。鸿蒙可以选择画质，USB iPhone 可以从「模式」下拉框切换 ReplayKit 视频和 WDA 截图，圆圈和齿轮分别用于返回主屏幕和打开 iPhone 设置。切回独立窗口或关闭合并窗口时，原视图回到对应窗口，会话继续运行。实现见 `src/main/window/mergedMirrors.ts` 和 `src/share/main/lib/window.ts`。见[三机真机验证](../maintenance/evidence/merged-live-controls-20261119.json)。
 
 安卓设备开启 USB 调试，插入后自动列出；选择设备并打开投屏窗口，在手机上确认首次 RSA 授权。主机私钥以受限权限持久化于应用配置目录，写完临时文件后原子发布，避免两台手机首次同时授权时读取到半写入密钥。直接 USB 接口不可被多进程同时占用。若在认证前遇到 ACCESS/BUSY，且 USB 序列号明确，应用释放自己的 USB 句柄并尝试复用本机 127.0.0.1:5037 已运行的 ADB 服务；严格匹配唯一在线序列号并固定 transport ID，仅关闭自己的连接，不启动/停止服务或 detach 设备。无匹配服务、未授权、序列号缺失或非接口占用错误不会选择其他设备或重放操作。回退仍失败时通过固定 connectionIssue 显示 USB 提示。2026-11-16用户报告的接口占用和授权恢复见[专项记录](../maintenance/agent-automation-android-codex-2026-11-16.md)。
 
@@ -81,6 +81,10 @@ npm start
 安卓画面位于应用内 Canvas，触摸坐标按实际视频区域换算，避开留白；只跟踪一个主指针。切换设备不改变已有窗口的目标。文本使用手机端剪贴板粘贴，可发送中文；此操作会改变手机剪贴板。当前不实现音频播放。
 
 原生投屏窗口通过 `nativeMirrorFit` 按实际解码尺寸适配窗口与拖动比例，计入标题栏、控制区和页面留白，布局换行时重算，保持完整画面且不拉伸；全屏／最大化时保留等比显示。适配 IPC 与输入一样校验会话窗口及主文档归属。投屏页直接显示统一设备列表，可选择已经识别的鸿蒙手机，不必依赖侧栏折叠菜单。
+
+安卓投屏支持从电脑拖入一个或多个独立 APK 安装或覆盖更新。在合并窗口中，拖到哪台安卓设备的画面就安装到哪台；按拖入顺序逐个显示结果。在 Android 13 真机上验证了首次安装、覆盖更新，以及混合拖入时跳过安装失败的 APK 后继续安装下一个。手机出现 USB 安装确认时，点「继续安装」。见[真机验证记录](evidence/android-apk-drop-2026-11-24.json)。
+
+Android 工具可在投屏关闭时使用，也能与已打开的投屏共享 ADB 连接。应用页支持选择或拖入 APK、查看详情、启动、停止、清除数据和卸载；设备支持按包清理缓存时显示对应操作。截图页可保存或复制 PNG。Shell 支持交互式终端；Logcat 支持实时读取、暂停、筛选和导出。进程页可对与当前用户已安装包匹配的进程执行停止应用。布局页显示截图、UI Automator 节点、属性和屏幕坐标。WebView 页列出前台应用已开启调试的 WebView，选择页面后可打开 DevTools。设备应用自行决定是否启用 WebView 调试。见[安卓工具验证记录](evidence/android-workspace-tools-2026-11-24.json)。
 
 安卓正常投屏时与鸿蒙保持简洁的画面布局：设备名放在窗口标题，隐藏常驻头部状态、底部系统键和文字输入栏，保留画面上的触控、滚动与键盘事件。连接／授权／错误提示仍显示。2026-11-05 用户已确认两平台投屏与触控正常，三星真实画面及精简布局验证见 [live.json](evidence/android-clean-window-2026-11-05/live.json)。
 
@@ -133,7 +137,7 @@ Windows AirPlay 模块采用 MinGW 延迟导入库与宿主解析钩子，将 No
 
 ## Agent 自动化入口（开发中）
 
-`src/main/automation/` 在持有设备的 Electron 进程提供 loopback 鉴权服务；`src/cli/` 为独立 Node 客户端，不连接 USB。当前服务状态、诊断、发现、会话 lease、画布截图与 Android/Harmony 输入已实现，真实 Electron 模拟闭环通过；Android/Harmony核心点击/滑动/文字闭环已通过，本机Codex app-server实际35工具/双端PNG/Harmony XML/租约验收通过；Windows及剩余物理矩阵pending。Harmony同版本HAP覆盖/启动/停止也已补真机证据；首次/升级/清空卸载保留待验收。现有Harmony工具和MCP已完成本地候选，见[验收交接](automation/acceptance.md)。`npm run build:cli` 输出 `dist/cli`；完整 build 同时生成客户端包。显式 `SCRCPY_PLUS_PROFILE` 在单实例锁和 store 初始化前生效。协议、使用方法与验证边界见[自动化指南](automation/README.md)和[维护记录](../maintenance/agent-automation.md)。
+`src/main/automation/` 在持有设备的 Electron 进程提供 loopback 鉴权服务；`src/cli/` 为独立 Node 客户端，不连接 USB。当前服务状态、诊断、发现、会话 lease、画布截图与 Android/Harmony 输入已实现，真实 Electron 模拟闭环通过；Android/Harmony核心点击/滑动/文字闭环已通过，11 月 16 日的本机 Codex app-server 实际 35 工具/双端PNG/Harmony XML/租约验收通过；Windows及剩余物理矩阵pending。Harmony同版本HAP覆盖/启动/停止也已补真机证据；首次/升级/清空卸载保留待验收。现有Harmony工具和MCP已完成本地候选，见[验收交接](automation/acceptance.md)。`npm run build:cli` 输出 `dist/cli`；完整 build 同时生成客户端包。显式 `SCRCPY_PLUS_PROFILE` 在单实例锁和 store 初始化前生效。协议、使用方法与验证边界见[自动化指南](automation/README.md)和[维护记录](../maintenance/agent-automation.md)。
 
 自动化最新验证源码 `1f48fbd`：应用1094pass/2skip、Licia各606/4、lint/fullbuild/包检查/Electron模拟通过；实际Codex app-server及双真机结果见[续验记录](../maintenance/agent-automation-android-codex-2026-11-16.md)。tsc既有诊断保留，iOS按用户要求暂缓；这些结果不回写上方历史集成阶段计数。
 
@@ -141,8 +145,10 @@ Windows AirPlay 模块采用 MinGW 延迟导入库与宿主解析钩子，将 No
 
 ## 桌面 iPhone 准备（本地开发中）
 
-`src/main/lib/ios-provisioning/` 通过内置 Rust 签名 helper 与冻结 Python 设备 helper 提供 Apple ID 登录、安装、启动和续签。IPC `iosSetup` 仅接受所属 USB 投屏窗口的动作，设备由主进程解析。已管理设备在创建投屏前检查；后台每分钟调度，临近到期且空闲时续签。`IosSetup.tsx` 提供双语进度与系统授权引导，入口位于 USB 投屏窗口右上角工具面板；首次 WDA 连接失败时自动打开，不在画面上常驻按钮。密码不写配置。WDA 状态包含实际 bundle 身份；安装前有会话预约和持久恢复记录。当前为本地候选，macOS 应用内登录、签名安装、启动及受控时钟触发的真实续签已验证；干净环境、实际七天到期及 Windows 仍待验收，见 [状态与边界](../maintenance/ios-desktop-provisioning.md)。
+`src/main/lib/ios-provisioning/` 通过内置 Rust 签名 helper 与冻结 Python 设备 helper 提供 Apple ID 登录、安装、启动和续签。IPC `iosSetup` 仅接受所属 USB 投屏窗口的动作，设备由主进程解析。已管理设备在创建投屏前检查；后台每分钟调度，临近到期且空闲时续签。`IosSetup.tsx` 提供双语进度与系统授权引导，入口位于 USB 投屏窗口的工具面板；首次 WDA 连接失败时自动打开，不在画面上常驻按钮。密码不写配置。WDA 状态包含实际 bundle 身份；安装前有会话预约和持久恢复记录。当前为本地候选，macOS 应用内登录、签名安装、启动及受控时钟触发的真实续签已验证；干净环境、实际七天到期及 Windows 仍待验收，见 [状态与边界](../maintenance/ios-desktop-provisioning.md)。
 
 ### 投屏加载态
 
 `src/renderer/components/MirrorStatus.tsx` 和 `MirrorStatus.module.scss` 定义共享连接卡片及主题，native-mirror（Android/iOS USB/AirPlay）和鸿蒙 Screencast 在加载期间使用。设备授权、AirPlay 连接指导仍由各入口提供；加载完成沿用原有会话/首帧状态。实现及验收范围见[加载态维护记录](../maintenance/mirror-loading.md)。
+
+当前 CLI 和 MCP 还覆盖 Android 工作区、独立设备截图、USB iOS 概览与桌面窗口布局。示例和平台限制见[自动化命令参考](automation/cli.md)。

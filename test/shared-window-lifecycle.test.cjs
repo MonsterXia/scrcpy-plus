@@ -9,7 +9,7 @@ function fixture() {
   class Contents extends EventEmitter {
     messages = []
     send(...args) { this.messages.push(args) }
-    focus() {}
+    focus() { this.focusRequests = (this.focusRequests || 0) + 1 }
     isDestroyed() { return !!this.closed }
     close() { this.closed = true }
   }
@@ -80,6 +80,7 @@ test('detachable custom titlebars receive independent window events and restore 
   const win = api.create({ name: 'mirror', detachable: true })
   const contents = win.mirrorView.webContents
   for (const event of ['enter-full-screen', 'leave-full-screen', 'maximize', 'unmaximize', 'focus', 'blur']) win.emit(event)
+  assert.equal(contents.focusRequests ?? 0, 0, 'a focus notification must not activate the window again')
   assert.deepEqual(contents.messages.filter(([name]) => name.startsWith('window-')), [
     ['window-fullscreen', true], ['window-fullscreen', false], ['window-maximize', true],
     ['window-maximize', false], ['window-focus', true], ['window-focus', false],

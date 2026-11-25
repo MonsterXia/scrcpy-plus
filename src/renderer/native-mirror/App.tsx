@@ -4,12 +4,27 @@ import { useEffect, useRef, useState } from 'react'
 import type { MirrorSession, NativeMirrorFrame, NativeMirrorInfo, NativeMirrorInput } from 'common/types'
 import { t } from 'common/util'
 import H264Decoder from '../screencast/lib/H264Decoder'
+import { isFileDrop, notify } from 'share/renderer/lib/util'
+import escape from 'licia/escape'
 import Style from './App.module.scss'
 import StatusStyle from '../components/MirrorStatus.module.scss'
 import Toolbar from './Toolbar'
 import IosSetup from './IosSetup'
 import StatusCard, { StatusIcon } from '../components/MirrorStatus'
 import { NativeInputFlow } from './NativeInputFlow'
+
+async function installDroppedApk(file: File) {
+  try {
+    const filePath = preload.getPathForFile(file)
+    if (!filePath) throw new Error('Missing local file')
+    notify(escape(t('bundleInstalling', { path: file.name })), { icon: 'info' })
+    await main.nativeMirrorInstallApk(filePath)
+    notify(escape(t('bundleInstalled', { path: file.name })), { icon: 'success' })
+  } catch (error) {
+    console.error('APK installation failed', error)
+    notify(escape(t('apkInstallFailed', { name: file.name })), { icon: 'error' })
+  }
+}
 
 function statusLabel(state: string, issue?: MirrorSession['connectionIssue'], wasConnected = false) {
   switch (state) {
@@ -41,7 +56,7 @@ export default observer(function App() {
   const iosUsb = info?.target.platform === 'ios' && info.target.transport === 'usb'
   const interactive = android || iosUsb
   const display = useRef<{ width: number; height: number; rotation: number } | undefined>(undefined)
-  const title = interactive ? info.target.name : t('screencast')
+  const title = info?.target.mirrorTitle || t('screencast')
   useEffect(() => preload.setTitle(title), [title])
   useEffect(() => { if (iosUsb && connectionIssue === 'ios-wda' && status === 'error' && !presented.current) setSetupOpen(true) },[iosUsb,connectionIssue,status])
   const send = (input: NativeMirrorInput) => {
@@ -206,7 +221,16 @@ export default observer(function App() {
   const setup = status === 'error' && connectionIssue === 'ios-wda' && !presented.current
   const decoding = status === 'running' && error === 'plusNativeDecodeError'
   const statusTitle = setup ? t('plusIosNotReady') : failed ? t(presented.current ? 'plusConnectionInterrupted' : 'plusConnectionFailed') : decoding ? t('plusVideoRecovering') : t('plusNativeStarting')
-  return <main className={`${Style.page} ${StatusStyle.theme} ${interactive ? Style.interactive : ''}`}>
+  return <main className={`${Style.page} ${StatusStyle.theme} ${interactive ? Style.interactive : ''}`}
+    onDragOver={event => { if (android && isFileDrop(event)) event.preventDefault() }}
+    onDrop={event => {
+      if (!android || event.defaultPrevented || !event.dataTransfer.files.length) return
+      event.preventDefault()
+      const apks = Array.from(event.dataTransfer.files).filter(file => file.name.toLowerCase().endsWith('.apk'))
+      if (!apks.length) notify(t('apkDropUnsupported'), { icon: 'error' })
+      else if (status !== 'running') notify(t('apkDropNotConnected'), { icon: 'error' })
+      else apks.forEach(file => void installDroppedApk(file))
+    }}>
     {iosUsb && setupOpen && <IosSetup onClose={()=>setSetupOpen(false)} onReady={()=>{setSetupOpen(false);void reconnect()}} />}
     {!setupOpen && (!interactive || status !== 'running' || decoding) && <div className={!interactive && status === 'running' && !decoding ? undefined : StatusStyle.statusOverlay}>
       {interactive || status !== 'running' || decoding ? <StatusCard title={statusTitle}

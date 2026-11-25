@@ -133,9 +133,9 @@ function findEl(hierarchy: Document, pointerX: number, pointerY: number) {
       const y2 = y1 + h
       if (
         x1 <= pointerX &&
-        pointerX <= x2 &&
+        pointerX < x2 &&
         y1 <= pointerY &&
-        pointerY <= y2
+        pointerY < y2
       ) {
         if (w * h <= resultWidth * resultHeight) {
           result = el

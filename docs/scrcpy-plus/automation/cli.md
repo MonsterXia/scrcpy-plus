@@ -64,42 +64,42 @@ scrcpy-plus sessions stop --session "$SID" --lease "$LEASE" --client agent-a --j
 
 已释放 lease 至少保留 5 分钟用于重复 stop/release，即使同客户端已重新获取新 lease，也不会误释放新 lease。关闭仍在途时不接受新的 start/GUI 认领；原 lease 可重试清理。
 
-文本上限 16384 UTF-16 code units，文件/stdin 额外有 64KiB UTF-8 输入上限。不要把敏感文本放在命令参数中。MCP 仍待 M5 实现。
+文本上限 16384 UTF-16 code units，文件/stdin 额外有 64KiB UTF-8 输入上限。不要把敏感文本放在命令参数中。MCP 使用相同的操作和设备参数。
 
-## Harmony 查询
+## 设备工作区查询
 
-以下命令必须指定 `--device <Harmony key>`；不会跟随 GUI 的目标选择，Android/iOS 返回 UNSUPPORTED。
+以下命令均按显式 `--device <key>` 查询。Android 和 Harmony 支持下表全部命令。USB iPhone 也支持 `overview get`，无需启动 WDA。
 
 | 命令 | 额外参数 | 返回 |
 | --- | --- | --- |
 | `overview get` | 无 | 设备参数、CPU、内存、屏幕等现有概览字段 |
 | `apps list` | 可选 `--user-only` | bundle 名称数组，默认包含系统应用 |
 | `apps info` | `--bundle <名称>` | 单项设备元数据；不查询线上商店 |
-| `apps top` | 无 | 非系统前台应用 name/pid；无匹配为空/0 |
+| `apps top` | 无 | 前台应用 name/pid，Harmony 仅返回非系统应用，无匹配时为空/0 |
 | `processes list` | 无 | 进程快照 |
 
-使用 `--json --timeout-ms <期限>`；取消/截止会关闭有界设备查询，不自动重试。完整工具覆盖与尚未开放的写操作见[逐操作登记](harmony-tools.md)。
+使用 `--json --timeout-ms <期限>`；取消/截止会关闭有界设备查询，不自动重试。平台支持范围见[能力矩阵](capabilities.md)。
 
-## Harmony 应用写操作
+## Android 与 Harmony 应用管理
 
-以下命令均要求 `--device <Harmony key>`。`--bundle` 仅接受合法应用标识，启动的 ability 必须明确指定。不会自动重试。
+以下命令均要求 `--device <key>`。`--bundle` 仅接受合法应用标识，启动时通过 `--ability` 指定入口。Android 使用 `apps info` 返回的完整 `mainAbility`（如 `com.example.app/.MainActivity`）。不会自动重试。
 
 | 命令 | 额外参数 | 副作用 |
 | --- | --- | --- |
 | `apps start` | `--bundle <名称> --ability <名称>` | 启动指定 ability |
 | `apps stop` | `--bundle <名称>` | 强制停止应用 |
-| `apps install` | `--path <绝对HAP路径>` | 安装或替换应用，默认 120 秒；成功返回 completed 和独立的 cleanupConfirmed |
+| `apps install` | `--path <绝对包路径>` | 安装或替换应用，默认 120 秒；成功返回 completed 和独立的 cleanupConfirmed |
 | `apps uninstall` | `--bundle <名称>` | 卸载并删除应用数据 |
 | `apps clear-data` | `--bundle <名称>` | 删除应用数据 |
 | `apps clear-cache` | `--bundle <名称>` | 删除应用缓存 |
 
-安装文件须为 4 字节至 512MiB 的普通 .hap/.HAP 文件并具有 ZIP 文件头；这不替代设备安装器对包完整性/签名的校验。服务从已打开的文件描述符暂存为私有 package.hap，参数数组调用同一个配置的 HDC 服务器，不将主机路径拼入 shell。完成或失败后清理暂存文件。
+Android 使用 APK，Harmony 使用 HAP，均须为 4 字节至 512 MiB 的普通文件并具有 ZIP 文件头；这不替代设备安装器对包完整性/签名的校验。服务从已打开的文件描述符创建私有暂存副本。Android 复用桌面端的 ADB 安装队列，Harmony 调用已配置的 HDC 服务器。Android 清缓存需要设备支持 `pm clear --cache-only`，可先查看应用信息中的 `supportsCleanCache`。完成或失败后清理暂存文件。
 
 超时/取消会终止本次创建的 HDC 客户端进程，不停止其他程序或共享 HDC 服务器。设备端可能已经执行，outcome=unknown 时先查询实际状态，不能据此推断回滚。成功结果 `{completed:true}` 表示命令返回已确认的完成标记，不代表安装后的业务流程成功。
 
-## Harmony 日志、布局、端口与 shell
+## 日志、布局、端口与 shell
 
-完整参数与边界见 [Harmony 工具登记](harmony-tools.md)。示例：
+Android 支持同名的 Logcat、UI Automator XML 和单次 shell 命令。端口映射仅在 Harmony 提供。Harmony 的实现和限制见[工具登记](harmony-tools.md)。
 
 ```sh
 scrcpy-plus logs capture --device DEVICE --duration-ms 5000 --output device.log --json
@@ -109,3 +109,13 @@ scrcpy-plus ports add --device DEVICE --direction forward --local tcp:8701 --rem
 scrcpy-plus ports remove --device DEVICE --direction forward --local tcp:8701 --remote tcp:8702 --json
 scrcpy-plus shell run --device DEVICE --command-file ./read-only-script.sh --json
 ```
+
+## 独立截图、WebView 与窗口布局
+
+| CLI 命令 | MCP 工具 | 行为 |
+| --- | --- | --- |
+| `screen snapshot --device KEY --output FILE` | `screen_snapshot` | 无需投屏会话。Android 输出 PNG，Harmony 输出 JPEG。MCP 直接返回图片，CLI 支持 `--overwrite`。触摸需要的 frameId 来自 `screen capture`。 |
+| `webviews list --device KEY` | `webviews_list` | 列出 Android 前台应用的可调试页面，返回 id、type、title、url。无可用页面时返回空数组。 |
+| `mirrors layout` | `mirrors_layout` | 读取当前桌面投屏布局。 |
+| `mirrors arrange --layout merged` | `mirrors_arrange` | 对所有活动投屏窗口应用 independent、side-by-side 或 merged，包括其他客户端持有的窗口。 |
+| `mirrors focus --device KEY` | `mirrors_focus` | 显示并聚焦已有设备窗口或合并栏，同时让 GUI 持有该窗口。 |

@@ -1,14 +1,14 @@
-import { LoadingBar } from 'share/renderer/components/loading'
+import { observer } from 'mobx-react-lite'
+import { t } from 'common/util'
+import { StatusIcon } from '../../../components/MirrorStatus'
+import Style from '../../../components/MirrorStatus.module.scss'
 
-interface ILoadingProps {
-  className?: string
-  onClick?: () => void
-}
-
-export const PannelLoading = function (props: ILoadingProps) {
+export const PannelLoading = observer(function PannelLoading({ showLabel = false }: { showLabel?: boolean }) {
+  const label = t('workspaceLoading')
   return (
-    <div className="panel-loading" onClick={props.onClick}>
-      <LoadingBar />
+    <div className={`panel-loading ${Style.theme}`} role="status" aria-label={label}>
+      <StatusIcon busy />
+      {showLabel && <span>{label}</span>}
     </div>
   )
-}
+})

@@ -99,6 +99,8 @@ export const getTargets = async function (includeUnavailable = false): Promise<I
 
         return {
           name: parameterString(parameters['const.product.name']) || connectKey,
+          model: parameterString(parameters['const.product.model']) || undefined,
+          brand: parameterString(parameters['const.product.brand']) || undefined,
           key: connectKey,
           ohosVersion,
           sdkVersion: parameterString(parameters['const.ohos.apiversion']),
@@ -239,18 +241,28 @@ const inputKey: IpcInputKey = async function (connectKey, keyCode) {
   await uitest.inputSystemKey(connectKey, keyCode)
 }
 
-const screencap: IpcScreencap = async function (connectKey) {
-  const name = 'echo_screen.jpeg'
-  const p = `/data/local/tmp/${name}`
-  await shell(connectKey, [`rm -r ${p}`, `snapshot_display -i 0 -f ${p}`])
-
-  const target = client.getTarget(connectKey)
-  const dest = path.resolve(os.tmpdir(), name)
-  await target.recvFile(p, dest)
-  const buf = await fs.readFile(dest)
-
-  return buf.toString('base64')
+export async function captureDeviceJpeg(connectKey: string, context?: DeviceOperationContext) {
+  const remote = `/data/local/tmp/scrcpy-plus-${crypto.randomUUID()}.jpeg`
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'scrcpy-plus-snapshot-'))
+  const dest = path.join(directory, 'capture.jpeg')
+  try {
+    await shell(connectKey, `snapshot_display -i 0 -f ${remote}`, context)
+    if (context?.host) await context.host(['file', 'recv', remote, dest])
+    else await client.getTarget(connectKey).recvFile(remote, dest)
+    if ((await fs.stat(dest)).size > 32 * 1024 * 1024) throw new Error('Snapshot exceeds 32 MiB')
+    const bytes = await fs.readFile(dest)
+    if (bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes.at(-2) !== 0xff || bytes.at(-1) !== 0xd9)
+      throw new Error('Device returned an incomplete JPEG')
+    return bytes
+  } finally {
+    await Promise.all([
+      fs.remove(directory),
+      // Cleanup has its own bounded request even if the caller disconnected.
+      automationShell(connectKey, `rm -f ${remote}`, { signal: AbortSignal.timeout(5000), deadline: Date.now() + 5000 }),
+    ])
+  }
 }
+const screencap: IpcScreencap = async key => (await captureDeviceJpeg(key)).toString('base64')
 
 async function openHdcCli() {
   let cwd = resolveResources('hdc')

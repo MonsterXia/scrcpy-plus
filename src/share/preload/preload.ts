@@ -3,6 +3,7 @@ import { colorBgContainer, colorBgContainerDark } from 'common/theme'
 import getUrlParam from 'licia/getUrlParam'
 import isMac from 'licia/isMac'
 import $ from 'licia/$'
+import type { MirrorHeading } from 'common/types'
 import mainObj from './main'
 import { webUtils } from 'electron'
 
@@ -42,19 +43,30 @@ async function updateTheme() {
   }
 }
 
-mainObj.on('mergedMirrorLabel', (label: string, toolInset = 0) => {
+mainObj.on('mergedMirrorLabel', (label: MirrorHeading | null, toolInset: number, headerHeight: number) => {
   const root = document.documentElement
   const heading = document.getElementById('merged-mirror-label')
   // The host resends the label on did-finish-load when attaching during navigation.
   if (!heading) return
-  heading.textContent = label
+  heading.replaceChildren()
+  heading.title = label ? [label.name, label.detail].filter(Boolean).join(' · ') : ''
   heading.hidden = !label
   if (label) {
-    root.dataset.mirrorLabel = label
+    const name = document.createElement('span')
+    name.textContent = label.name
+    heading.append(name)
+    if (label.detail) {
+      const detail = document.createElement('small')
+      detail.textContent = label.detail
+      heading.append(detail)
+    }
+    root.dataset.mirrorLabel = heading.title
+    root.style.setProperty('--mirror-header-height', headerHeight + 'px')
     root.style.setProperty('--mirror-tool-inset', toolInset + 'px')
   } else {
     delete root.dataset.mirrorLabel
     root.style.removeProperty('--mirror-tool-inset')
+    root.style.removeProperty('--mirror-header-height')
   }
 })
 

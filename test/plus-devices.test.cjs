@@ -5,11 +5,11 @@ const os = require('node:os')
 const path = require('node:path')
 const vm = require('node:vm')
 const { transformSync } = require('esbuild')
-function load(file, mocks = {}) {
+function load(file, mocks = {}, globals = {}) {
   mocks = { '../ios-provisioning': { renewIos: async () => {}, disposeIosSetup() {} }, ...mocks }
   const module = { exports: {} }
   vm.runInNewContext(transformSync(fs.readFileSync(file, 'utf8'), { loader: 'ts', format: 'cjs' }).code,
-    { module, exports: module.exports, __filename: path.resolve(file), console, process, Buffer, Error, setTimeout, clearTimeout, setInterval, clearInterval,
+    { module, exports: module.exports, __filename: path.resolve(file), AbortController, AbortSignal, console, process, Buffer, Error, setTimeout, clearTimeout, setInterval, clearInterval, ...globals,
       require: id => Object.hasOwn(mocks, id) ? mocks[id] : require(id) })
   return module.exports
 }
@@ -44,19 +44,20 @@ test('codec changes and native queue loss require another keyframe', () => {
   assert.deepEqual(Array.from(next.configuration), Array.from(changed))
   assert.equal(gate.push({ data: delta, timestamp: 5, reset: true }), undefined)
 })
-function androidFixture(directory, filesystem = fs.promises, localAdb = async () => { throw Error("No local ADB server") }) {
+function androidFixture(directory, filesystem = fs.promises, localAdb = async () => { throw Error("No local ADB server") }, globals = {}, sdkModules = {}) {
   const devices = ['a', 'b'].map(serial => ({ serial, name: 'Same model',
     closes: 0, connects: 0, raw: { claimInterface: async () => {}, releaseInterface: async () => {}, open: async () => {}, transferIn: async () => ({}), transferOut: async () => ({}), close: async () => { devices.find(d => d.serial === serial).closes++ } },
     async connect() { this.connects++; await this.raw.open(); return { serial } },
   }))
   const clients = [], authentications = []
   const api = load('src/main/lib/devices/android.ts', {
+    './androidShell': load('src/main/lib/devices/androidShell.ts'),
     './androidServer': { connectLocalAdb: localAdb },
     './androidOverview': { readAndroidOverview: async adb => ({ name: adb.serial }) },
     'node:fs/promises': filesystem,
     '@yume-chan/adb': {
-      AdbDaemonTransport: { authenticate: async options => { authentications.push(options.serial); return { serial: options.serial } } },
-      Adb: class { constructor(transport) { this.serial = transport.serial } async close() {} },
+      AdbDaemonTransport: { authenticate: async options => { authentications.push(options.serial); await devices.find(device => device.serial === options.serial)?.authorize?.(); return { serial: options.serial } } },
+      Adb: class { constructor(transport) { this.transport = transport; this.serial = transport.serial } async close() {} },
     },
     '@yume-chan/adb-daemon-webusb': { AdbDaemonWebUsbDeviceManager: class { async getDevices() { return devices } } },
     '@yume-chan/adb-scrcpy': {
@@ -77,7 +78,8 @@ function androidFixture(directory, filesystem = fs.promises, localAdb = async ()
     '@yume-chan/stream-extra': { ReadableStream, WritableStream },
     'node:module': { createRequire: () => () => ({ WebUSB: class {} }) },
     'share/main/lib/util': { getUserDataPath: file => path.join(directory, file), resolveResources: () => path.join(directory, 'server') },
-  })
+    ...sdkModules,
+  }, globals)
   return { ...api, devices, clients, authentications }
 }
 function directory(t) {
@@ -115,7 +117,9 @@ test('USB idle timeouts do not end ADB authentication and real disconnects still
 })
 test('direct USB discovery distinguishes identical models without authenticating or launching tools', async t => {
   const f = androidFixture(directory(t))
+  f.devices[0].raw.manufacturerName = 'Xiaomi'
   const devices = await f.discoverAndroid()
+  assert.equal(devices[0].brand, 'Xiaomi')
   assert.deepEqual(Array.from(devices, d => d.key), ['android:a', 'android:b'])
   assert.equal(devices[0].name, devices[1].name)
   assert.ok(f.devices.every(d => d.connects === 0))
@@ -272,6 +276,155 @@ test('Android overview reuses active mirror transport and temporary reads releas
   assert.equal(f.devices[0].connects, 2)
   assert.equal(f.devices[0].closes, 2, 'standalone read must release its connection')
 })
+test('closing a mirror waiting for USB authorization releases only its own claim', async t => {
+  for (const shared of [false, true]) {
+    const f = androidFixture(directory(t))
+    const [target] = await f.discoverAndroid()
+    const device = f.devices[0]
+    const authorization = Promise.withResolvers()
+    const started = Promise.withResolvers()
+    device.authorize = () => { started.resolve(); return authorization.promise }
+    device.raw.close = async () => {
+      device.closes++
+      authorization.reject(new Error('USB closed'))
+    }
+    const mirror = new f.AndroidMirror(target)
+    const failed = assert.rejects(mirror.start(() => {}, () => {}))
+    await Promise.race([started.promise, failed.then(() => {
+      throw new Error('Mirror failed before authorization')
+    })])
+    const workspace = shared ? f.acquireAndroidAdb(target.key) : undefined
+    await mirror.close()
+    await failed
+    assert.equal(device.closes, shared ? 0 : 1)
+    if (workspace) {
+      authorization.resolve()
+      const lease = await workspace
+      assert.equal(lease.adb.serial, target.connectionId)
+      await lease.release()
+    }
+    assert.equal(device.closes, 1)
+  }
+})
+test('cancelled Tango mirror startup closes only its sockets and permits a fresh start on shared ADB', { timeout: 8000 }, async t => {
+  const { Adb } = await import('@yume-chan/adb')
+  const scrcpy = await import('@yume-chan/adb-scrcpy')
+  const { MaybeConsumable } = await import('@yume-chan/stream-extra')
+  for (const phase of ['upload', 'upload-timeout', 'process-open', 'forward-open', 'metadata']) {
+    const entered = Promise.withResolvers(), late = Promise.withResolvers()
+    const openSockets = new Set(), serverPaths = [], removed = [], namespaces = new Set()
+    let retry = false, video = true, transportCloses = 0
+    const transport = {
+      serial: 'a', clientFeatures: [], banner: { features: [] }, maxPayloadSize: 65536,
+      disconnected: new Promise(() => {}),
+      async close() { transportCloses++ },
+      async connect(service) {
+        let read
+        const closed = Promise.withResolvers()
+        const socket = {
+          service, closed: closed.promise,
+          readable: new ReadableStream({ start(controller) { read = controller } }),
+          writable: new MaybeConsumable.WritableStream({ write(bytes) {
+            if (service === 'sync:' && Buffer.from(bytes).includes('DONE')) {
+              if (!retry && phase.startsWith('upload')) entered.resolve()
+              else read.enqueue(Buffer.from('OKAY\0\0\0\0'))
+            }
+          } }),
+          close() {
+            if (openSockets.delete(socket)) {
+              try { read.close() } catch { /* Already cancelled by sync.dispose(). */ }
+              closed.resolve()
+            }
+          },
+        }
+        openSockets.add(socket)
+        if (service.startsWith('exec:rm -f ')) {
+          removed.push(service.slice('exec:rm -f '.length))
+          socket.close()
+        } else if (service.startsWith('exec:CLASSPATH=')) {
+          serverPaths.push(service.match(/CLASSPATH=(\S+)/)[1])
+          video = true
+          if (!retry && phase === 'process-open') { entered.resolve(); await late.promise }
+        } else if (service.startsWith('localabstract:scrcpy_')) {
+          namespaces.add(service)
+          if (video) {
+            video = false
+            if (!retry && phase === 'forward-open') { entered.resolve(); await late.promise }
+            read.enqueue(Buffer.from([0]))
+            if (retry) {
+              const metadata = Buffer.alloc(76)
+              metadata.write('test'); metadata.write('h264', 64)
+              metadata.writeUInt32BE(640, 68); metadata.writeUInt32BE(480, 72)
+              read.enqueue(metadata)
+            }
+          } else if (!retry && phase === 'metadata') entered.resolve()
+        }
+        return socket
+      },
+    }
+    const signals = {
+      any: AbortSignal.any.bind(AbortSignal),
+      timeout: ms => AbortSignal.timeout(!retry && phase === 'upload-timeout' && ms === 30000 ? 60 : ms),
+    }
+    const f = androidFixture(directory(t), undefined, undefined, { AbortSignal: signals }, {
+      '@yume-chan/adb': { Adb, AdbDaemonTransport: { authenticate: async () => transport } },
+      '@yume-chan/adb-scrcpy': scrcpy,
+    })
+    const [target] = await f.discoverAndroid()
+    const workspace = await f.acquireAndroidAdb(target.key)
+    const shell = await workspace.adb.createSocket('shell:')
+    const mirror = new f.AndroidMirror(target)
+    const stopped = assert.rejects(mirror.start(() => {}, () => {}), phase === 'upload-timeout' ? /timeout/i : /closed/)
+    await entered.promise
+    // Let Tango construct its client for the metadata phase.
+    await new Promise(setImmediate)
+    if (phase === 'upload-timeout') {
+      // AbortSignal.timeout uses an unref'ed timer in Node.
+      await new Promise(resolve => setTimeout(resolve, 75))
+    } else await mirror.close()
+    await stopped
+    assert.equal(removed.length, 1)
+    assert.match(removed[0], /^\/data\/local\/tmp\/scrcpy-plus-server-[0-9a-f]+\.jar$/)
+    retry = true
+    const next = new f.AndroidMirror(target)
+    await next.start(() => {}, () => {})
+    // Previous opens can still receive an ADB reply after the retry is live.
+    late.resolve()
+    await new Promise(setImmediate)
+    assert.notEqual(removed[0], serverPaths.at(-1))
+    if (phase === 'forward-open' || phase === 'metadata') assert.equal(namespaces.size, 2)
+    assert.equal(openSockets.size, 4, phase) // Workspace, new process, video and control.
+    await next.close()
+    assert.deepEqual([...openSockets], [shell])
+    assert.equal(transportCloses, 0)
+    await shell.close()
+    await workspace.release()
+    assert.equal(transportCloses, 1)
+  }
+})
+test('a late native USB open cannot close a replacement connection after timeout', async t => {
+  const f = androidFixture(directory(t), undefined, undefined, {
+    setTimeout(fn, ms) { return setTimeout(fn, ms === 30000 ? 20 : ms) },
+  })
+  const [target] = await f.discoverAndroid()
+  const device = f.devices[0], gate = Promise.withResolvers()
+  const connect = device.connect.bind(device)
+  device.connect = async () => {
+    const connection = await connect()
+    if (device.connects === 1) await gate.promise
+    return connection
+  }
+  await assert.rejects(f.acquireAndroidAdb(target.key), /timed out/)
+  const replacement = f.acquireAndroidAdb(target.key)
+  await new Promise(setImmediate)
+  assert.equal(device.connects, 1)
+  gate.resolve()
+  const lease = await replacement
+  assert.equal(device.connects, 2)
+  assert.equal(device.closes, 1)
+  await lease.release()
+  assert.equal(device.closes, 2)
+})
 test('overview waits for a stopping mirror to release its USB interface', async t => {
   const f = androidFixture(directory(t)), [target] = await f.discoverAndroid()
   let release, closing = false
@@ -346,4 +499,176 @@ test('Android does not fall back to another transport after authentication or ge
  const f=androidFixture(directory(t),fs.promises,async()=>{calls++;throw Error('unexpected')})
  f.devices[0].raw.serialNumber='a';f.devices[0].connect=async()=>{throw Error('disconnected')}
  const [target]=await f.discoverAndroid();await assert.rejects(f.getAndroidOverview(target),/disconnected/);assert.equal(calls,0)
+})
+
+test('APK uploads are streamed and installed in drop order, with cleanup and recovery after failure', async t => {
+  const root = directory(t), f = androidFixture(root)
+  const mirror = new f.AndroidMirror({ key: 'android:a', connectionId: 'a' })
+  await mirror.start(() => {}, () => {})
+  t.after(() => mirror.close())
+  const pushed = [], commands = [], removed = []
+  let disposed = 0
+  Object.assign(mirror.lease.adb, {
+    sync: async () => ({
+      async write({ filename, file }) {
+        assert.match(filename, /^\/data\/local\/tmp\/scrcpy-plus-[\da-f-]+\.apk$/)
+        const chunks = []
+        for await (const chunk of file) chunks.push(chunk)
+        pushed.push({ filename, data: Buffer.concat(chunks) })
+      },
+      async dispose() { disposed++ },
+    }),
+    subprocess: { noneProtocol: { async spawn(command) {
+      const args = command.split(' ')
+      if (args[0] === 'rm') removed.push(args.at(-1))
+      else commands.push(args)
+      const output = args[0] === 'rm' ? '' : commands.length === 1 ? 'Failure [INSTALL_FAILED_INVALID_APK]' : 'Success\r\n'
+      return { output: new ReadableStream({ start(c) { c.enqueue(Buffer.from(output)); c.close() } }),
+        exited: Promise.resolve(), kill() {} }
+    } } },
+  })
+  const bad = path.join(root, 'bad.apk'), good = path.join(root, 'update & space.APK')
+  fs.writeFileSync(bad, 'bad'); fs.writeFileSync(good, Buffer.alloc(512 * 1024, 0xab))
+  const results = await Promise.allSettled([mirror.installApk(bad), mirror.installApk(good)])
+  assert.equal(results[0].status, 'rejected')
+  assert.match(results[0].reason.message, /INSTALL_FAILED_INVALID_APK/)
+  assert.equal(results[1].status, 'fulfilled')
+  assert.equal(pushed.length, 2)
+  assert.notEqual(pushed[0].filename, pushed[1].filename)
+  for (const [index, local] of [bad, good].entries()) {
+    assert.deepEqual(pushed[index].data, fs.readFileSync(local))
+    assert.deepEqual(commands[index], ['pm', 'install', '--user', 'current', '-r', pushed[index].filename])
+  }
+  assert.deepEqual(removed, pushed.map(push => push.filename))
+  assert.equal(disposed, 2)
+  for (const invalid of ['relative.apk', path.join(root, 'server'), path.join(root, 'missing.apk')]) {
+    await assert.rejects(mirror.installApk(invalid))
+  }
+  assert.equal(commands.length, 2)
+})
+
+test('cancelled APK phases release the install queue and close only their own channels', async t => {
+  const root = directory(t), f = androidFixture(root)
+  const lease = await f.acquireAndroidAdb('android:a')
+  t.after(() => lease.release())
+  const file = path.join(root, 'package.apk')
+  fs.writeFileSync(file, 'fixture')
+  for (const phase of ['upload', 'installer']) {
+    const abort = new AbortController()
+    let begin, installs = 0, disposed = 0, cleaned = 0, killed = 0
+    const started = new Promise(resolve => { begin = resolve })
+    Object.assign(lease.adb, {
+      sync: async () => ({
+        async write() { if (phase === 'upload' && !abort.signal.aborted) { begin(); await new Promise(() => {}) } },
+        async dispose() { disposed++ },
+      }),
+      subprocess: { noneProtocol: { async spawn(command) {
+        const remove = command.startsWith('rm -f ')
+        if (remove) cleaned++
+        const stall = !remove && phase === 'installer' && !abort.signal.aborted
+        return {
+          output: new ReadableStream({ start(c) {
+            if (stall) begin()
+            else { c.enqueue(Buffer.from(remove ? '' : 'Success')); c.close() }
+          } }),
+          exited: Promise.resolve(), kill() { killed++ },
+        }
+      } } },
+    })
+    const operation = lease.installApk(file, () => { installs++ }, abort.signal)
+    await started
+    const queuedAbort = new AbortController()
+    const queued = lease.installApk(file, () => { throw Error('queued operation ran') }, queuedAbort.signal)
+    queuedAbort.abort(Error('queue cancelled'))
+    await assert.rejects(queued, /queue cancelled/)
+    abort.abort(Error('cancelled'))
+    await assert.rejects(operation, /cancelled/)
+    await lease.installApk(file, () => { installs++ })
+    assert.equal(installs, phase === 'upload' ? 1 : 2)
+    assert.equal(disposed, 2)
+    assert.equal(cleaned, 2)
+    assert.equal(killed, installs + cleaned)
+    assert.equal(f.devices[0].closes, 0)
+  }
+})
+
+test('closing the sole mirror waits for dropped APK cleanup before releasing ADB', async t => {
+  const root = directory(t), f = androidFixture(root)
+  const mirror = new f.AndroidMirror({ key: 'android:a', connectionId: 'a' })
+  await mirror.start(() => {}, () => {})
+  const cleanup = Promise.withResolvers(), uploaded = Promise.withResolvers()
+  let removed = false
+  Object.assign(mirror.lease.adb, {
+    sync: async () => ({
+      write() { uploaded.resolve(); return new Promise(() => {}) },
+      dispose() { return cleanup.promise },
+    }),
+    subprocess: { noneProtocol: { async spawn(command) {
+      assert.match(command, /^rm -f /)
+      assert.equal(f.devices[0].closes, 0)
+      removed = true
+      return { output: new ReadableStream({ start(c) { c.close() } }),
+        exited: Promise.resolve(), kill() {} }
+    } } },
+  })
+  const file = path.join(root, 'drop.apk')
+  fs.writeFileSync(file, 'fixture')
+  const install = assert.rejects(mirror.installApk(file))
+  await uploaded.promise
+  const closed = mirror.close()
+  await new Promise(setImmediate)
+  assert.equal(f.devices[0].closes, 0)
+  cleanup.resolve()
+  await Promise.all([install, closed])
+  assert.equal(removed, true)
+  assert.equal(f.devices[0].closes, 1)
+})
+
+test('a stalled APK cleanup preserves the confirmed install and releases the device queue', async t => {
+  const root = directory(t), f = androidFixture(root)
+  const lease = await f.acquireAndroidAdb('android:a')
+  t.after(() => lease.release())
+  const file = path.join(root, 'test.apk')
+  fs.writeFileSync(file, 'fixture')
+  let installs = 0, cleanups = 0, killed = 0
+  const timeout = AbortSignal.timeout.bind(AbortSignal)
+  t.mock.method(AbortSignal, 'timeout', ms => timeout(ms === 5000 ? 10 : ms))
+  const warn = t.mock.method(console, 'warn', () => {})
+  Object.assign(lease.adb, {
+    sync: async () => ({ write: async () => {}, dispose: async () => {} }),
+    subprocess: { noneProtocol: { async spawn(command) {
+      const remove = command.startsWith('rm -f ')
+      if (remove) cleanups++
+      else installs++
+      return { output: new ReadableStream({ start(c) {
+        if (remove && cleanups === 1) return
+        c.enqueue(Buffer.from(remove ? '' : 'Success')); c.close()
+      } }), exited: Promise.resolve(), kill() { killed++ } }
+    } } },
+  })
+  // The production deadline is unref'ed, so keep this isolated test alive.
+  const budget = setTimeout(() => {}, 1000)
+  try { await Promise.all([lease.installApk(file), lease.installApk(file)]) }
+  finally { clearTimeout(budget) }
+  assert.deepEqual([installs, cleanups, killed], [2, 2, 4])
+  assert.equal(warn.mock.callCount(), 1)
+})
+
+test('Android workspace tools and mirroring share one USB claim until the last user releases it', async t => {
+  const f = androidFixture(directory(t))
+  const [target] = await f.discoverAndroid()
+  const [workspace, terminal] = await Promise.all([f.acquireAndroidAdb(target.key), f.acquireAndroidAdb(target.key)])
+  const mirror = new f.AndroidMirror(target)
+  await mirror.start(() => {}, () => {})
+  assert.equal(f.devices[0].connects, 1)
+  assert.equal(workspace.adb, terminal.adb)
+  await mirror.close()
+  await workspace.release()
+  await workspace.release()
+  assert.equal(f.devices[0].closes, 0)
+  assert.equal(await f.withAndroidAdb(target.key, async adb => adb === terminal.adb), true)
+  await terminal.release()
+  assert.equal(f.devices[0].closes, 1)
+  await assert.rejects(f.acquireAndroidAdb('android:missing'), /disconnected/)
+  assert.equal(f.devices[1].connects, 0)
 })

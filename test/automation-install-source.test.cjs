@@ -28,3 +28,18 @@ test('staging removal failure does not replace the original installation failure
  t.after(async()=>{if(staged)await fs.rm(path.dirname(staged),{recursive:true,force:true})})
  await assert.rejects(withInstallationSource(source,ctx(),async file=>{staged=file;throw Error('install refused')}),/install refused/)
 })
+
+test('Android installation stages APKs with their extension and rejects a Harmony package', async t => {
+  const { withInstallationSource } = load('src/main/automation/adapters/installSource.ts')
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'plus-apk-'))
+  t.after(() => fs.rm(dir, { recursive: true, force: true }))
+  const source = path.join(dir, 'app.APK')
+  await fs.writeFile(source, Buffer.from([0x50, 0x4b, 3, 4]))
+  await assert.rejects(withInstallationSource(path.join(dir, 'app.hap'), ctx(), assert.fail, '.apk'), { code: 'INVALID_ARGUMENT' })
+  const result = await withInstallationSource(source, ctx(), async file => {
+    assert.equal(path.basename(file), 'package.apk')
+    return file
+  }, '.apk')
+  assert.equal(result.cleanupConfirmed, true)
+  await assert.rejects(fs.access(result.value))
+})

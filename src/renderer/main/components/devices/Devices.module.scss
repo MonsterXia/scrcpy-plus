@@ -20,6 +20,13 @@
 .deviceRow input { width: 17px; height: 17px; margin: 0; accent-color: var(--workspace-accent); flex-shrink: 0; }
 .selected { background: var(--workspace-selected); }
 .deviceIcon, .receiverIcon { width: 42px; height: 42px; display: grid; place-items: center; flex-shrink: 0; border-radius: 12px; background: var(--workspace-hover); color: var(--workspace-secondary); font-size: 23px; }
+.deviceIcon svg {
+  width: 29px;
+  height: 29px;
+  fill: var(--brand-ink);
+  :global([data-theme='dark']) & { fill: color-mix(in srgb, var(--brand-ink) 65%, white); }
+}
+.deviceIcon:is([data-brand='asus'], [data-brand='honor'], [data-brand='oppo'], [data-brand='samsung'], [data-brand='sony'], [data-brand='vivo']) svg { width: 34px; height: 34px; }
 .identity { flex: 1; min-width: 100px; strong { display: block; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; } small { display: block; color: var(--workspace-secondary); margin-top: 4px; line-height: 1.45; } small.error { color: var(--workspace-danger); } }
 .status { display: flex; align-items: center; gap: 8px; color: var(--workspace-secondary); font-size: 12px; line-height: 1.5; max-width: 220px; i { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: currentColor; } }
 .deviceRow > .status, .sessionRow > .status { flex: 0 1 160px; }

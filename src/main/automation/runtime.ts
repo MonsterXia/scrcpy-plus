@@ -4,10 +4,14 @@ import { captureHilog } from '../lib/hdc/hilog'
 import { dumpWindowHierarchy } from '../lib/hdc/uitest'
 import { runHostCommand, captureHostOutput } from '../lib/hdc/hostCommand'
 import { withInstallationSource } from './adapters/installSource'
-import { createHarmonyToolHandlers } from './adapters/harmonyTools'
-import { automationHostEndpoint, automationShell, getOverview } from '../lib/hdc'
+import { androidTools } from './adapters/androidTools'
+import { getIosOverview } from '../lib/devices/ios-usbmux'
+import { createDeviceToolHandlers } from './adapters/harmonyTools'
+import { automationHostEndpoint, automationShell, captureDeviceJpeg, getOverview } from '../lib/hdc'
 import { getProcesses } from '../lib/hdc/base'
 import { getBundles, getBundleInfos, getTopBundle, startBundle, stopBundle, installBundle, uninstallBundle, cleanBundleData, cleanBundleCache } from '../lib/hdc/bundle'
+import { currentMirrorLayout, focusWorkspaceMirror, setWorkspaceLayout } from '../window/main'
+import type { MirrorLayout } from '../../common/types'
 import { registerSessionOperations } from './sessionOperations'
 import { ipcMain } from 'electron'
 import { AutomationController } from './controller'
@@ -70,7 +74,21 @@ export function createAutomationRuntime(instanceId: string, version: string) {
   const service = createAutomationService({ instanceId,version,discover:getDevices,
     running: key => controller.sessions.list().some(session => session.deviceKey === key && session.state === 'running') })
   registerSessionOperations(service, controller)
-  const tools = createHarmonyToolHandlers({ layout: dumpWindowHierarchy, logs: captureHilog, captureHost: (key,args,c,d,m) => captureHostOutput(automationHostEndpoint(),key,args,c,d,m), ports: {
+  service.register('mirrors.layout', async () => ({ layout: currentMirrorLayout() }))
+  service.register('mirrors.arrange', async params => {
+    if (!controller.sessions.list().some(session => !['stopped', 'stopping'].includes(session.state)))
+      throw new AutomationFault('UNAVAILABLE', 'No active mirror windows')
+    setWorkspaceLayout({ layout: params.layout as MirrorLayout })
+    return { layout: currentMirrorLayout() }
+  })
+  service.register('mirrors.focus', async params => {
+    const device = params.device as string
+    if (!controller.sessions.list().some(session => session.deviceKey === device && !['stopped', 'stopping'].includes(session.state)))
+      throw new AutomationFault('NOT_FOUND', 'No active mirror for this device')
+    await focusWorkspaceMirror(device)
+    return { completed: true }
+  })
+  const tools = createDeviceToolHandlers({ snapshot: captureDeviceJpeg, layout: dumpWindowHierarchy, logs: captureHilog, captureHost: (key,args,c,d,m) => captureHostOutput(automationHostEndpoint(),key,args,c,d,m), ports: {
     list: (key,reverse,c) => reverse ? ports.listReverses(key,c) : ports.listForwards(key,c),
     add: (key,local,remote,reverse,c) => reverse ? ports.reverse(key,remote,local,c) : ports.forward(key,local,remote,c),
     remove: (key,local,remote,reverse,c) => reverse ? ports.removeReverse(key,remote,local,c) : ports.removeForward(key,local,remote,c),
@@ -84,7 +102,9 @@ export function createAutomationRuntime(instanceId: string, version: string) {
       case 'install': return withInstallationSource(p.path as string,context,file=>installBundle(key,file,context))
       default: throw new AutomationFault('UNSUPPORTED','Unknown application operation')
     }
-  }, overview: getOverview, appsList: getBundles, appsInfo: getBundleInfos, appsTop: getTopBundle, processes: getProcesses })
+  }, overview: getOverview, appsList: getBundles, appsInfo: getBundleInfos, appsTop: getTopBundle, processes: getProcesses }, androidTools, {
+    'overview.get': (_params, context, target) => waitForRead(context, () => getIosOverview(target)),
+  })
   for (const [name, handler] of Object.entries(tools)) service.register(name, handler)
   return { ...service, controller }
 }

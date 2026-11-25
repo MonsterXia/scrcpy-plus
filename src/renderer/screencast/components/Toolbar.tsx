@@ -21,7 +21,6 @@ const AUTO_HIDE_DELAY = 2000
 export default observer(function Toolbar() {
   const { target, screencastClient } = store
   const [expanded, setExpanded] = useState(false)
-  const [buttonVisible, setButtonVisible] = useState(true)
   const toggle = useRef<HTMLButtonElement>(null)
   const [hovered, setHovered] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -34,14 +33,10 @@ export default observer(function Toolbar() {
   }>({ codec: null, fps: null, upgrading: false, canRetryVideo: false })
 
   useEffect(() => {
-    if ((!expanded && !buttonVisible) || hovered || editing)
-      return
-    const timer = setTimeout(() => {
-      if (expanded) setExpanded(false)
-      else setButtonVisible(false)
-    }, AUTO_HIDE_DELAY)
+    if (!expanded || hovered || editing) return
+    const timer = setTimeout(() => setExpanded(false), AUTO_HIDE_DELAY)
     return () => clearTimeout(timer)
-  }, [expanded, buttonVisible, hovered, editing])
+  }, [expanded, hovered, editing])
 
   useEffect(() => {
     if (!expanded || !screencastClient) return
@@ -87,10 +82,7 @@ export default observer(function Toolbar() {
   return (
     <div
       className={Style.overlay}
-      onMouseEnter={() => {
-        setHovered(true)
-        setButtonVisible(true)
-      }}
+      onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onPointerDownCapture={(event) => {
         keyboardInteraction.current = false
@@ -99,7 +91,6 @@ export default observer(function Toolbar() {
         )
       }}
       onFocusCapture={(event) => {
-        setButtonVisible(true)
         setEditing(
           keyboardInteraction.current ||
             event.target.matches('select, input, textarea'),
@@ -127,7 +118,7 @@ export default observer(function Toolbar() {
     >
       {createPortal(
         <div className={Style.entry}>
-          <ToolbarToggle ref={toggle} expanded={expanded} visible={expanded || buttonVisible}
+          <ToolbarToggle ref={toggle} expanded={expanded}
             controls="screencast-tools" onClick={() => setExpanded(!expanded)} />
         </div>,
         document.body,

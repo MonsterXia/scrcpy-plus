@@ -295,3 +295,10 @@ test('late layout image decode cannot request or replace a new device hierarchy'
   assert.equal(f.dumps.length, 1)
   assert.equal(f.image(), currentImage)
 })
+
+test('Android UI Automator bounds preserve negative origins and exclusive right and bottom edges', async (t) => {
+  const f = await fixture(t)
+  await complete(f, '<hierarchy rotation="1"><node class="android.widget.TextView" bounds="[-4,20][316,68]"/></hierarchy>')
+  const el = f.tree().hierarchy.documentElement.firstChild
+  assert.deepEqual(['x', 'y', 'width', 'height'].map(name => el.getAttribute(name)), ['-4', '20', '320', '48'])
+})

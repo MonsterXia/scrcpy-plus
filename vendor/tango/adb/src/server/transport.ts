@@ -43,7 +43,7 @@ export class AdbServerTransport implements AdbTransport {
 
     readonly banner: AdbBanner;
 
-    #sockets: AdbSocket[] = [];
+    #sockets = new Set<AdbSocket>();
 
     #closed = new PromiseResolver<void>();
     #disconnected: Promise<void>;
@@ -78,7 +78,9 @@ export class AdbServerTransport implements AdbTransport {
             { transportId: this.transportId },
             service,
         );
-        this.#sockets.push(socket);
+        this.#sockets.add(socket);
+        const remove = () => this.#sockets.delete(socket);
+        void socket.closed.then(remove, remove);
         return socket;
     }
 
@@ -101,7 +103,7 @@ export class AdbServerTransport implements AdbTransport {
         for (const socket of this.#sockets) {
             await socket.close();
         }
-        this.#sockets.length = 0;
+        this.#sockets.clear();
         this.#closed.resolve();
     }
 }

@@ -1,13 +1,14 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { AutomationFault, isRecord, MAX_IMAGE_BYTES, MAX_REQUEST_BYTES } from '../common/automation/protocol'
+import { AutomationFault, isRecord, MAX_IMAGE_BYTES } from '../common/automation/protocol'
+import { validArtifact } from '../common/automation/wire'
 export async function writeScreenshot(value: unknown, output: string, overwrite: boolean) {
   if (!isRecord(value) || !isRecord(value.frame) || !(value.bytes instanceof Uint8Array) || !value.bytes.byteLength || value.bytes.byteLength > MAX_IMAGE_BYTES) throw new AutomationFault('INTERNAL', 'Invalid screenshot result')
   return writeOutput(value.bytes,value.frame,output,overwrite)
 }
 export async function writeArtifact(value: unknown, output: string, overwrite: boolean) {
-  if (!isRecord(value) || !isRecord(value.artifact) || !(value.bytes instanceof Uint8Array) || value.bytes.byteLength > MAX_REQUEST_BYTES || value.artifact.byteLength !== value.bytes.byteLength) throw new AutomationFault('INTERNAL','Invalid artifact result')
+  if (!isRecord(value) || !(value.bytes instanceof Uint8Array) || !validArtifact(value.artifact, value.bytes.byteLength)) throw new AutomationFault('INTERNAL','Invalid artifact result')
   return writeOutput(value.bytes,value.artifact,output,overwrite)
 }
 async function writeOutput(bytes: Uint8Array, metadata: Record<string,unknown>, output: string, overwrite: boolean) {

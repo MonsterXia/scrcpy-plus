@@ -1,12 +1,13 @@
-import { randomUUID } from 'node:crypto'
+import { workspaceArtifact } from './workspaceArtifacts'
 import { waitForRead } from './waitForRead'
 import { runOneShotShell } from './oneShotShell'
-import type { DeviceDiscovery } from '../../../common/types'
+import type { DeviceDiscovery, ITarget } from '../../../common/types'
 import { AutomationFault, checkContext, isRecord } from '../../../common/automation/protocol'
 import type { AutomationContext } from '../../../common/automation/protocol'
 import type { DeviceOperationContext } from '../../../common/automation/deviceContext'
 import type { OperationHandler } from '../service'
 interface Dependencies {
+  snapshot?(key: string, context: DeviceOperationContext): Promise<Uint8Array>
   layout?(key: string,context: DeviceOperationContext): Promise<string>
   logs?(key: string,durationMs: number,maxBytes: number,context: DeviceOperationContext): Promise<{bytes: Uint8Array;truncated: boolean;durationMs: number}>
   captureHost?(key: string,args: string[],context: AutomationContext,durationMs: number,maxBytes: number): Promise<{bytes: Uint8Array;truncated: boolean;durationMs: number}>
@@ -24,16 +25,36 @@ interface Dependencies {
 export function validateBundleName(value: unknown): asserts value is string {
   if (typeof value !== 'string' || !/^[a-zA-Z][a-zA-Z0-9_.]{0,254}$/.test(value)) throw new AutomationFault('INVALID_ARGUMENT', 'Invalid application bundle name')
 }
-export function createHarmonyToolHandlers(deps: Dependencies): Record<string,OperationHandler> {
-  function read(operation: (p: Record<string,unknown>,c: DeviceOperationContext) => Promise<unknown>, mutates = false, rawOutput = false): OperationHandler {
-    return async (params,context) => {
+export type TargetOperation = (params: Record<string, unknown>, context: AutomationContext, target: ITarget) => Promise<unknown>
+export type TargetTools = Record<string, TargetOperation>
+
+export function createDeviceToolHandlers(
+  deps: Dependencies, android: TargetTools = {}, iosUsb: TargetTools = {},
+): Record<string, OperationHandler> {
+  const harmony = harmonyTools(deps)
+  const names = new Set([...Object.keys(harmony), ...Object.keys(android), ...Object.keys(iosUsb)])
+  return Object.fromEntries([...names].map(name => [name, async (params: Record<string, unknown>, context: AutomationContext) => {
+    const discovery = await waitForRead(context, deps.discover)
+    const device = discovery.targets.find(item => item.key === params.device)
+    if (!device) throw new AutomationFault(discovery.errors.length ? 'UNAVAILABLE' : 'NOT_FOUND', 'Device is not available')
+    const tools = device.platform === 'harmony' ? harmony : device.platform === 'android' ? android :
+      device.platform === 'ios' && device.transport === 'usb' ? iosUsb : undefined
+    const handler = tools?.[name]
+    if (!handler) throw new AutomationFault('UNSUPPORTED', 'Operation is unsupported on this device')
+    if (device.state !== 'ready') throw new AutomationFault('UNAVAILABLE', 'Device is offline or requires authorization')
+    try {
+      return await handler(params, context, device)
+    } catch (error) {
+      if (error instanceof AutomationFault) throw error
       checkContext(context)
-      const discovery = await deps.discover()
-      checkContext(context)
-      const device = discovery.targets.find(item => item.key === params.device)
-      if (!device) throw new AutomationFault(discovery.errors.length ? 'UNAVAILABLE' : 'NOT_FOUND', 'Device is not available')
-      if (device.platform !== 'harmony') throw new AutomationFault('UNSUPPORTED', 'This tool requires a Harmony device')
-      if (device.state !== 'ready') throw new AutomationFault('UNAVAILABLE', 'Device is offline or requires authorization')
+      throw new AutomationFault('UNAVAILABLE', 'Device operation failed')
+    }
+  }]))
+}
+
+function harmonyTools(deps: Dependencies): TargetTools {
+  function read(operation: (p: Record<string,unknown>,c: DeviceOperationContext) => Promise<unknown>, mutates = false, rawOutput = false): TargetOperation {
+    return async (params,context,device) => {
       let sent = false
       const scoped: DeviceOperationContext = { ...context, deviceKey: device.key, wait: operation => waitForRead(context,operation), captureHost: async(args,duration,maxBytes) => {
         checkContext(context)
@@ -70,7 +91,7 @@ export function createHarmonyToolHandlers(deps: Dependencies): Record<string,Ope
       }
     }
   }
-  const handlers: Record<string,OperationHandler> = {
+  const handlers: TargetTools = {
     'overview.get': read((_p,c)=>deps.overview(c.deviceKey,c)),
     'apps.list': read((p,c)=>deps.appsList(c.deviceKey,p.userOnly !== true,c)),
     'apps.info': read(async(p,c)=>{validateBundleName(p.bundle);const info=await deps.appsInfo(c.deviceKey,[p.bundle],c);if(!info.length)throw new AutomationFault('UNAVAILABLE','Application metadata is unavailable');return info[0]}),
@@ -94,15 +115,13 @@ export function createHarmonyToolHandlers(deps: Dependencies): Record<string,Ope
     await deps.ports![action](c.deviceKey,p.local,p.remote,reverse,c)
     return {completed:true}
   },action!=='list')
-  if (deps.layout) handlers['layout.dump'] = read(async(_p,c)=>{
-    const bytes=Buffer.from(await deps.layout!(c.deviceKey,c),'utf8')
-    if (bytes.length>1048576) throw new AutomationFault('UNAVAILABLE','Layout exceeds 1 MiB')
-    return {artifact:{artifactId:randomUUID(),mimeType:'application/xml',byteLength:bytes.length},bytes}
-  })
-  if (deps.logs) handlers['logs.capture'] = read(async(p,c)=>{
-    const result=await deps.logs!(c.deviceKey,(p.durationMs ?? 5000) as number,(p.maxBytes ?? 1048576) as number,c)
-    if (result.bytes.byteLength>1048576) throw new AutomationFault('UNAVAILABLE','Log capture exceeds 1 MiB')
-    return {artifact:{artifactId:randomUUID(),mimeType:'text/plain',byteLength:result.bytes.byteLength,truncated:result.truncated,durationMs:result.durationMs},bytes:result.bytes}
+  if (deps.snapshot) handlers['screen.snapshot'] = read(async (_p, c) =>
+    workspaceArtifact('image/jpeg', await deps.snapshot!(c.deviceKey, c)))
+  if (deps.layout) handlers['layout.dump'] = read(async (_p, c) =>
+    workspaceArtifact('application/xml', Buffer.from(await deps.layout!(c.deviceKey, c))))
+  if (deps.logs) handlers['logs.capture'] = read(async (p, c) => {
+    const { bytes, durationMs, truncated } = await deps.logs!(c.deviceKey, Number(p.durationMs ?? 5000), Number(p.maxBytes ?? 1048576), c)
+    return workspaceArtifact('text/plain', bytes, { durationMs, truncated })
   })
   return handlers
 

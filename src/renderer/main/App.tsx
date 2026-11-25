@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { observer } from 'mobx-react-lite'
 import store from './store'
 import Devices from './components/devices/Devices'
@@ -16,7 +17,15 @@ import { PannelLoading } from './components/common/loading'
 import useHapDrop from '../lib/useHapDrop'
 
 export default observer(function App() {
-  useHapDrop(store.overviewTarget?.platform === 'android' ? undefined : store.target?.key)
+  useHapDrop(store.target?.key)
+  const androidTools = store.ready && store.target?.platform === 'android' &&
+    !['devices', 'overview', 'settings'].includes(store.panel) ? store.target.key : undefined
+  useEffect(() => {
+    if (!androidTools) return
+    // Panels share a transport across metadata batches, refreshes and panel switches.
+    void main.selectAndroidTools(androidTools).catch(error => console.warn('Android tools connection unavailable', error))
+    return () => { void main.selectAndroidTools(null).catch(() => {}) }
+  }, [androidTools])
   const openSettings = () => store.selectPanel('settings')
   const panels = [
     { id: 'application', content: <Application /> },
@@ -37,7 +46,7 @@ export default observer(function App() {
         <Panel id="overview" active={store.panel === 'overview'}>
           {store.ready ? <Overview onOpenSettings={openSettings} /> : <PannelLoading />}
         </Panel>
-        {store.ready && (!store.target?.platform || store.target.platform === 'harmony') ? (
+        {store.ready && store.overviewTarget?.platform !== 'ios' ? (
           <div key={store.target?.key || ''}>
             {panels.map((panel) => (
               <Panel
@@ -49,7 +58,7 @@ export default observer(function App() {
               </Panel>
             ))}
           </div>
-        ) : !store.ready && store.panel !== 'settings' ? (
+        ) : !store.ready && !['overview', 'settings'].includes(store.panel) ? (
           <PannelLoading />
         ) : null}
       </Workspace>

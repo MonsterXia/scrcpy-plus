@@ -1,6 +1,6 @@
 import { AutomationFrameSource } from '../lib/AutomationFrameSource'
 import BaseStore from 'share/renderer/store/BaseStore'
-import { ITarget } from 'common/types'
+import type { MirrorTarget } from 'common/types'
 import { action, makeObservable, observable, runInAction } from 'mobx'
 import ScreencastClient from './lib/ScreencastClient'
 
@@ -18,7 +18,7 @@ function normalizeScale(value: unknown): number {
 }
 
 class Store extends BaseStore {
-  target!: ITarget
+  target!: MirrorTarget
   screencastClient!: ScreencastClient
   alwaysOnTop = false
   scale = 1
@@ -48,7 +48,7 @@ class Store extends BaseStore {
     this.screencastClient.start()
     main.setScreencastStore('scale', next)
   }
-  async setTarget(target: ITarget | null) {
+  async setTarget(target: MirrorTarget | null) {
     if (target === null) {
       main.closeScreencast()
     } else {

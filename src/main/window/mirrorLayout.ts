@@ -41,5 +41,13 @@ export function applyMirrorLayout(request: MirrorLayoutRequest, provider: () => 
     arrangeMirrors(windows, area)
     if (!keys) arranged = geometry(provider)
   }
-  else for (const window of windows) { if (window.isMinimized()) window.restore(); window.show() }
+  else {
+    // Reveal the group, then activate just the front window.
+    const front = windows[windows.length - 1]
+    for (const window of windows) {
+      if (window.isMinimized()) window.restore()
+      if (window !== front && !window.isVisible()) window.showInactive()
+    }
+    front?.show()
+  }
 }

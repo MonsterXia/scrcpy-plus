@@ -171,7 +171,6 @@ export function create(opts: IWinOptions) {
     }
     resize()
     win.on('resize', resize)
-    win.on('focus', () => { if (!win.mirrorHost) contents.focus() })
     contents.on('page-title-updated', (_event, title) => { if (!win.isDestroyed()) win.setTitle(title) })
     win.once('closed', () => { if (!contents.isDestroyed()) contents.close() })
   }
@@ -204,6 +203,8 @@ export function create(opts: IWinOptions) {
   // Make sure the window is shown even if the ready-to-show event is not emitted
   setTimeout(() => readyAndShow(), 1000)
 
+  // Only notify the renderer. WebContents.focus() here can reactivate an
+  // earlier native window on macOS when two mirrors are shown in succession.
   win.on('focus', () => pageContents(win).send('focusWin'))
   win.on('closed', () => {
     if (wins[opts.name] === win) delete wins[opts.name]

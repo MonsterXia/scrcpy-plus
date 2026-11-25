@@ -5,7 +5,9 @@ const createRoot = setup(), { act } = React
 async function fixture(t, platform = 'android', transport, extraGlobals = {}, initialSession) {
   const listeners = new Map(), inputs = [], acks = [], decoded = [], outputs = [], fits = []
   const frameStates = [], decoderErrors = [], videos = []
+  const installs = [], notices = []
   const main = {
+    nativeMirrorInstallApk: async file => installs.push(file),
     automationFrameState: async state => frameStates.push(state),
     automationFrameResult: async () => {},
     on: (name, fn) => { listeners.set(name, fn); return () => listeners.delete(name) },
@@ -15,7 +17,8 @@ async function fixture(t, platform = 'android', transport, extraGlobals = {}, in
     nativeMirrorFit: async (...args) => fits.push(args),
   }
   const App = load('src/renderer/native-mirror/App.tsx', {
-    'common/util': { t: key => key },
+    'common/util': { t: (key, args) => key + (args?.path || args?.name || '') },
+    'share/renderer/lib/util': { isFileDrop: event => event.dataTransfer.types.includes('Files'), notify: message => notices.push(message) },
     'share/renderer/components/ToolbarIcon': load('src/share/renderer/components/ToolbarIcon.tsx').default,
     'luna-toolbar/react': {
       __esModule: true,
@@ -23,12 +26,12 @@ async function fixture(t, platform = 'android', transport, extraGlobals = {}, in
       LunaToolbarSpace: () => null,
     },
     '../screencast/lib/H264Decoder': class { constructor(output, error) { outputs.push(output); decoderErrors.push(error) } push(...args) { decoded.push(args) } destroy() {} },
-  }, { main, preload: { setTitle() {} }, ...extraGlobals }).default
+  }, { main, preload: { setTitle() {}, getPathForFile: file => file.path }, ...extraGlobals }).default
   const host = document.body.appendChild(document.createElement('div')), root = createRoot(host)
   await act(async () => root.render(React.createElement(App)))
   t.after(async () => { await act(async () => root.unmount()); host.remove() })
   if (!initialSession) await act(async () => listeners.get('nativeMirrorState')({ id: 'owned-session', state: 'running' }))
-  return { host, listeners, inputs, acks, decoded, outputs, fits, frameStates, decoderErrors, videos, main }
+  return { host, installs, notices, listeners, inputs, acks, decoded, outputs, fits, frameStates, decoderErrors, videos, main }
 }
 test('decoded dimensions fit the window once and again on screen rotation', async t => {
   const f = await fixture(t), canvas = f.host.querySelector('canvas')
@@ -194,4 +197,36 @@ test('USB iPhone mode picker sends explicit requests and reflects backend state'
   assert.deepEqual(f.videos, [[false], [true], [false], [true]])
   await state('video', 'disconnected')
   assert.equal(picker.disabled, true)
+})
+
+test('dropping local files onto the Android canvas installs only APKs and reports per-file outcomes', async t => {
+  const f = await fixture(t)
+  f.main.nativeMirrorInstallApk = async file => {
+    f.installs.push(file)
+    if (file.endsWith('bad.apk')) throw new Error('INSTALL_FAILED_INVALID_APK')
+  }
+  const files = ['bad.apk', 'note.txt', '<update>.APK'].map(name => ({ name, path: '/local/' + name }))
+  const fire = type => {
+    const event = new window.Event(type, { bubbles: true, cancelable: true })
+    Object.assign(event, { dataTransfer: { types: ['Files'], files } })
+    f.host.querySelector('canvas').dispatchEvent(event)
+    return event.defaultPrevented
+  }
+  assert.ok(fire('dragover'))
+  await act(async () => assert.ok(fire('drop')))
+  assert.deepEqual(f.installs, ['/local/bad.apk', '/local/<update>.APK'])
+  assert.ok(f.notices.includes('apkInstallFailedbad.apk'))
+  assert.ok(f.notices.includes('bundleInstalled&lt;update&gt;.APK'))
+  await act(async () => f.listeners.get('nativeMirrorState')({ id: 'owned-session', state: 'disconnected' }))
+  assert.ok(fire('drop'))
+  assert.equal(f.installs.length, 2)
+  assert.ok(f.notices.includes('apkDropNotConnected'))
+})
+
+test('iOS mirror ignores APK drops', async t => {
+  const f = await fixture(t, 'ios', 'usb')
+  const event = new window.Event('drop', { bubbles: true, cancelable: true })
+  Object.assign(event, { dataTransfer: { files: [{ name: 'other.apk', path: '/local/other.apk' }] } })
+  f.host.querySelector('canvas').dispatchEvent(event)
+  assert.deepEqual(f.installs, [])
 })

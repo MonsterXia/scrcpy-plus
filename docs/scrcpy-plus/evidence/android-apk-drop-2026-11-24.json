@@ -1,0 +1,20 @@
+{
+  "date": "2026-11-24",
+  "host": "macOS",
+  "deviceModel": "M2007J1SC",
+  "androidVersion": "13",
+  "mainBundleSha256": "9d8a70abc1a4acc6c13b2852190bd8880776bb0ada5b744f6fe104fe60290e3b",
+  "method": "On a physical USB device, drop disk-backed files onto the production Electron mirror canvas through Chromium drag events. Observe visible notifications and query Android Package Manager through the active mirror ADB transport.",
+  "priorAttempt": "The phone returned INSTALL_FAILED_USER_RESTRICTED while USB installation was unconfirmed. The test package was verified absent before retry.",
+  "passed": true,
+  "checks": [
+    "Discovered one Android USB device",
+    "Acquired test mirror lease",
+    "Live frame presented on M2007J1SC / Android 13",
+    "Unique test package absent before drop",
+    "First drop showed success and phone reported versionCode 1",
+    "Mixed drop reported failure for invalid APK and installed signed versionCode 2",
+    "Verified disposable package absent after cleanup",
+    "Test mirror lease released"
+  ]
+}

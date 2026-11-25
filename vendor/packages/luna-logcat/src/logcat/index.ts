@@ -328,7 +328,7 @@ export default class Logcat extends Component<IOptions> {
 }
 
 function toLetter(priority: number) {
-  return ['?', '?', 'V', 'D', 'I', 'W', 'E'][priority]
+  return ['?', '?', 'V', 'D', 'I', 'W', 'E', 'F'][priority]
 }
 
 function getColor(str: string) {

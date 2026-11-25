@@ -13,3 +13,27 @@ test('shell output truncation is explicit and missing completion never looks suc
  });assert.equal(result.output,'abcd');assert.equal(result.truncated,true)
  await assert.rejects(runOneShotShell('read',4,ctx(),async()=> 'partial output'),{code:'OUTCOME_UNKNOWN'})
 })
+
+test('Android shell cancellation releases silent reads and retires a late process open', async () => {
+  const { readAndroidShellOutput } = load('src/main/lib/devices/androidShell.ts')
+  for (const late of [false, true]) {
+    const opened = Promise.withResolvers()
+    const child = {
+      output: new ReadableStream(),
+      exited: Promise.resolve(),
+      kills: 0,
+      async kill() { this.kills++ },
+    }
+    const controller = new AbortController()
+    const adb = { subprocess: { noneProtocol: { spawn: () => opened.promise } } }
+    const read = readAndroidShellOutput(adb, 'getprop', 1024, 30000, controller.signal)
+    if (!late) opened.resolve(child)
+    await new Promise(setImmediate)
+    controller.abort(new Error('Request cancelled'))
+    await assert.rejects(read, /Request cancelled/)
+    if (late) opened.resolve(child)
+    await new Promise(setImmediate)
+    assert.equal(child.kills, 1)
+    assert.equal(child.output.locked, false)
+  }
+})

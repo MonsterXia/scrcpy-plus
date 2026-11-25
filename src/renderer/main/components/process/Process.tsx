@@ -27,6 +27,7 @@ export default observer(function Process() {
   const actionRef = useRef(false)
   const mounted = useRef(false)
   const key = store.target?.key
+  const android = store.target?.platform === 'android'
   const active = store.panel === 'process'
   const onlyBundle = store.process.onlyBundle
 
@@ -60,17 +61,19 @@ export default observer(function Process() {
       try {
         const [list, names] = await Promise.all([
           main.getProcesses(key),
-          bundles ? Promise.resolve(bundles) : main.getBundles(key),
+          android ? undefined : bundles || main.getBundles(key),
         ])
         if (!current()) return
         bundles = names
         setProcesses(
-          list.map((process: any) => {
-            const name = process.name.match(/^[\w.]+/)?.[0]
-            return name && names.includes(name)
-              ? { ...process, bundleName: name }
-              : process
-          }),
+          names
+            ? list.map((process: any) => {
+                const name = process.name.match(/^[\w.]+/)?.[0]
+                return name && names.includes(name)
+                  ? { ...process, bundleName: name }
+                  : process
+              })
+            : list,
         )
         setError(false)
       } catch {
@@ -90,7 +93,7 @@ export default observer(function Process() {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [key, active])
+  }, [key, active, android])
 
   const visibleProcesses = useMemo(() => {
     const query = filter.trim().toLowerCase()

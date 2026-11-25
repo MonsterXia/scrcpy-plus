@@ -13,6 +13,7 @@ import ApplicationActions, { BundleAction } from './ApplicationActions'
 interface IProps extends IModalProps {
   bundleInfo: IBundleInfo
   busy: boolean
+  android?: boolean
   returnFocus?: HTMLElement | null
   restoreFocus?: () => void
   suspended?: boolean
@@ -23,6 +24,7 @@ interface IProps extends IModalProps {
 // The details surface stays inside the workspace's theme and device boundary.
 export default observer(function BundleInfoModal({
   bundleInfo,
+  android = false,
   visible,
   onClose,
   busy,
@@ -86,15 +88,16 @@ export default observer(function BundleInfoModal({
         {bundleInfo.vendor && item(t('vendor'), bundleInfo.vendor)}
         {item(
           t('installTime'),
-          dateFormat(new Date(bundleInfo.installTime), 'yyyy-mm-dd HH:MM:ss'),
+          bundleInfo.installTime ? dateFormat(new Date(bundleInfo.installTime), 'yyyy-mm-dd HH:MM:ss') : '',
         )}
-        {item(t('releaseType'), bundleInfo.releaseType)}
+        {!android && item(t('releaseType'), bundleInfo.releaseType)}
         {bundleInfo.mainAbility &&
-          item(t('mainAbility'), bundleInfo.mainAbility)}
+          item(t(android ? 'androidMainActivity' : 'mainAbility'), bundleInfo.mainAbility)}
       </dl>
       <ApplicationActions
         busy={busy}
         canOpen={Boolean(bundleInfo.mainAbility)}
+        canCleanCache={bundleInfo.supportsCleanCache !== false}
         onAction={onAction}
       />
     </Dialog>

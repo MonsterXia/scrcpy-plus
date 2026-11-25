@@ -1,5 +1,9 @@
 # 通用 UI 样式
 
+## 加载动画
+
+主窗口面板用 `PannelLoading` 居中显示投屏窗口的 `StatusIcon busy`。需要同时显示「正在加载…」时传入 `showLabel`。圆环、主题配色和减少动态效果规则由 [MirrorStatus](../../../../src/renderer/components/MirrorStatus.tsx) 与其样式表统一维护。
+
 ## 弹窗与底部操作
 
 新增弹窗或改造已有弹窗时，先选已有组件。主窗口、投屏窗口和辅助工具窗口共用这套样式。

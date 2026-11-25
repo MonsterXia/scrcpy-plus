@@ -96,6 +96,7 @@ async function fixture(
     getTopBundle: (...args) => request('top', args),
     getWebviews: (...args) => request('pages', args),
     openWindow: (...args) => calls.opened.push(args),
+    inspectAndroidWebview: (...args) => calls.opened.push(args),
     openExternal: (...args) => calls.opened.push(args),
   }
   const h = React.createElement
@@ -417,4 +418,14 @@ test('real WebView grid rows are keyboard reachable and keep focus on selection 
     page().url,
   )
   assert.equal(document.activeElement, row)
+})
+
+test('Android inspection opens only the selected enumerated page and disables external device URLs', async (t) => {
+  const f = await fixture(t, { target: { key: 'android:fixture', platform: 'android' } })
+  await complete(f, 0, [{ id: '123:abcd', type: 'page', title: 'Fixture', url: 'file:///android_asset/view.html' }])
+  assert.deepEqual(f.calls.opened, [])
+  await f.select()
+  assert.equal(f.disabled('browser'), true)
+  await f.click('debug')
+  assert.deepEqual(f.calls.opened, [['android:fixture', 123, '123:abcd']])
 })

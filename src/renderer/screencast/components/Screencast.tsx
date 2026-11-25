@@ -17,7 +17,7 @@ export default observer(function Screencast() {
   const [captureState, setCaptureState] = useState<CaptureState>('loading')
 
   useEffect(() => {
-    preload.setTitle(target.name)
+    preload.setTitle(target.mirrorTitle)
     let disposed = false
     let stopFitting = () => {}
     let keyboard: ScreencastInput | undefined
