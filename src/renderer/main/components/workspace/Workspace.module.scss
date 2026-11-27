@@ -72,15 +72,9 @@
   white-space: nowrap;
 }
 .brandMark {
-  display: grid;
-  place-items: center;
   width: 30px;
   height: 30px;
   flex-shrink: 0;
-  border-radius: 9px;
-  background: #2469db;
-  color: white;
-  font-size: 19px;
 }
 .brandName {
   letter-spacing: -0.3px;

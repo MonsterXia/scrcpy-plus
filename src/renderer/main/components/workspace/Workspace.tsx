@@ -3,6 +3,9 @@ import { observer } from 'mobx-react-lite'
 import { t } from 'common/util'
 import { notify } from 'share/renderer/lib/util'
 import store from '../../store'
+import brandLight from '../../../assets/icon.png'
+import brandDark from '../../../assets/icon-dark.png'
+import StartMirrorIcon from './StartMirrorIcon'
 import MultiMirrorIcon from './MultiMirrorIcon'
 import useMainFeedback from './useMainFeedback'
 import Style from './Workspace.module.scss'
@@ -43,9 +46,11 @@ export default observer(function Workspace({
     <div className={Style.workspace} data-theme={store.theme} data-workspace>
       <aside className={Style.sidebar}>
         <div className={Style.brand}>
-          <span className={Style.brandMark} aria-hidden="true">
-            <span className="icon-screencast" />
-          </span>
+          <img
+            className={Style.brandMark}
+            src={store.theme === 'dark' ? brandDark : brandLight}
+            alt=""
+          />
           <span className={Style.brandName}>{t('workspaceProduct')}</span>
         </div>
         <button
@@ -133,7 +138,7 @@ export default observer(function Workspace({
                   .catch(() => notify(t('commonErr'), { icon: 'error' }))
               }}
             >
-              <span className="icon-screencast" aria-hidden="true" />
+              <StartMirrorIcon />
               {t('workspaceStartMirroring')}
             </button>
           )}

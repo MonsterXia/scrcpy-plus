@@ -257,6 +257,7 @@ async function pushApk(adb: Adb, file: FileHandle, remote: string, signal: Abort
 class AndroidConnection {
   private device?: AdbDaemonWebUsbDevice
   private adb?: Adb
+  private transportDisconnected = false
   private connecting?: Promise<Adb>
   private handshake?: Promise<unknown>
   private drained?: Promise<void>
@@ -310,7 +311,10 @@ class AndroidConnection {
       return this.adb
 
     })().then(adb => {
-      const disconnected = () => { void this.close().catch(error => console.warn('Android disconnect cleanup failed', error)) }
+      const disconnected = () => {
+        this.transportDisconnected = true
+        void this.close().catch(error => console.warn('Android disconnect cleanup failed', error))
+      }
       adb.disconnected?.then(disconnected, disconnected)
       return adb
     })
@@ -357,11 +361,23 @@ class AndroidConnection {
     await this.close()
     await this.drained
   }
+  private async closeTransport() {
+    try {
+      // Tango disposes direct transport sockets when it reports a disconnect.
+      if (!this.device || !this.transportDisconnected) await this.adb?.close()
+    } catch (error) {
+      // A stop can reach an already closed writer before that report arrives.
+      const failure = error as NodeJS.ErrnoException
+      const writerClosed = failure?.code === 'ERR_INVALID_STATE' && /WritableStream is closed/i.test(failure.message)
+      if (!this.device || !(this.transportDisconnected || writerClosed || usbDisconnected(error))) throw error
+    }
+    this.adb = undefined
+  }
   close(): Promise<void> {
     if (this.closing) return this.closing
     this.closed = true
     this.closing = Promise.resolve().then(async () => {
-      try { await this.adb?.close() }
+      try { await this.closeTransport() }
       finally { await this.device?.raw.close() }
       // A new owner may claim the same native USB handle after this entry is
       // removed. Drain the interrupted handshake before allowing that claim.

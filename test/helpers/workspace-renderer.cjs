@@ -32,6 +32,7 @@ function load(file, mocks = {}, globals = {}, cache = new Map(), strict = false)
     setTimeout, clearTimeout, ...globals,
     require(id) {
       if (Object.hasOwn(mocks, id)) return mocks[id]
+      if (id.endsWith('.png')) return require.resolve(path.resolve(path.dirname(filename), id))
       if (id.endsWith('.scss')) return new Proxy({}, { get: (_, key) => key === '__esModule' ? false : key })
       if (id.startsWith('share/renderer/dialog/')) return load('src/' + id + '.tsx', mocks, globals, cache, strict)
       if (id === '../../common/i18n' && mocks['common/util']) return mocks['common/util']

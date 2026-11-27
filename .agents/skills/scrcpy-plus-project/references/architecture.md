@@ -10,7 +10,7 @@ Scrcpy Plus 的包名为 `scrcpy-plus`，应用 ID 为 `io.scrcpyplus.desktop`�
 
 `ReleaseProvider.ts` 完整分页读取 GitHub Releases；API 403/429 时改读公开 Release 页，`releasePage.ts` 只解析发布卡片标题与标记、核对同仓库递增分页，结构未知/截断或上限未能确认完整时拒绝。请求共用 30 秒网络取消预算，API 最多 10 页各 100 条、网页最多 10 页，不拿部分清单宣称最新。选中 tag 后读取 Windows `latest.yml`、macOS arm64 `latest-mac.yml`、macOS x64 `latest-x64-mac.yml`，核对元数据版本与 tag 一致；名称仍与 `script/pack.mjs` 对齐。
 
-共享更新协调器在网络前立即打开 `src/main/window/update.ts` 的独立更新窗口，合并重复检查；`src/renderer/update` 显示 400×146 进度窗口及约 260×234 结果卡。取消在 AppUpdater 异步初始化前登记，立即关闭展示并抑制迟到结果；旧请求排空后才允许下一次实际请求，以免复用取消中的库 Promise。初始化中的文件操作本身无法强制中断，取消后的窗口可重开显示等待并再次取消。新的版本不适用于系统/灰度时单独提示，不称为没有更高版本。`getUpdateState`、`updateAction` 仅接受该窗口的 main frame，状态通过 `updateState` 发送；renderer 用 `main.on` 返回值退订。更新窗口恢复最小化父窗口，跟随置顶，支持 Cancel/Escape/Enter；仅明确点击下载按钮时打开选中 tag 的 Releases 页面。
+共享更新协调器在网络前立即打开 `src/main/window/update.ts` 的独立更新窗口，合并重复检查；`src/renderer/update` 显示 400×146 进度窗口及约 260×234 结果卡。取消在 AppUpdater 异步初始化前登记，立即关闭展示并抑制迟到结果；旧请求排空后才允许下一次实际请求，以免复用取消中的库 Promise。初始化中的文件操作本身无法强制中断，取消后的窗口可重开显示等待并再次取消。新的版本不适用于系统/灰度时单独提示，不称为没有更高版本。`getUpdateState`、`updateAction` 仅接受该窗口的 main frame，状态通过 `updateState` 发送；renderer 用 `main.on` 返回值退订。macOS 更新窗口单独拖动，通过发起窗口的事件同步显隐、前置和关闭，避免原生子窗口拖动时落后于指针。更新窗口恢复最小化父窗口，跟随置顶，支持 Cancel/Escape/Enter；仅明确点击下载按钮时打开选中 tag 的 Releases 页面。
 
 | 路径 | 职责 |
 | --- | --- |

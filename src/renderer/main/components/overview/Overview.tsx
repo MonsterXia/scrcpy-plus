@@ -10,6 +10,7 @@ import { PannelLoading } from '../common/loading'
 import PortMappingModal from './PortMappingModal'
 import RemoteControllerModal from './RemoteControllerModal'
 import Style from './Overview.module.scss'
+import StartMirrorIcon from '../workspace/StartMirrorIcon'
 import DeviceSwitcher from '../workspace/DeviceSwitcher'
 
 export default observer(function Overview({
@@ -103,7 +104,7 @@ export default observer(function Overview({
             void runTool(() => main.showScreencast(target!.key))
           }}
         >
-          <span className="icon-screencast" aria-hidden="true" />
+          <StartMirrorIcon />
           {t('workspaceStartMirroring')}
         </button>
       </header>

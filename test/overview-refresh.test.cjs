@@ -27,7 +27,7 @@ test('overview clears stale details after a failed refresh and recovers on retry
   const h = React.createElement
   const Empty = () => null
   const mocks = {
-    './Overview.module.scss': {}, '../workspace/DeviceSwitcher': () => null,
+    './Overview.module.scss': {}, '../workspace/DeviceSwitcher': () => null, '../workspace/StartMirrorIcon': () => null,
     '../../store': { overviewTarget: { key: 'synthetic-target', ohosVersion: '6.0', sdkVersion: '20' } },
     'common/util': { t: (key) => key },
     'share/renderer/lib/util': { notify: (...args) => notifications.push(args) },
