@@ -257,6 +257,7 @@ async function pushApk(adb: Adb, file: FileHandle, remote: string, signal: Abort
 class AndroidConnection {
   private device?: AdbDaemonWebUsbDevice
   private adb?: Adb
+  private transportDisconnected = false
   private connecting?: Promise<Adb>
   private handshake?: Promise<unknown>
   private drained?: Promise<void>
@@ -310,7 +311,10 @@ class AndroidConnection {
       return this.adb
 
     })().then(adb => {
-      const disconnected = () => { void this.close().catch(error => console.warn('Android disconnect cleanup failed', error)) }
+      const disconnected = () => {
+        this.transportDisconnected = true
+        void this.close().catch(error => console.warn('Android disconnect cleanup failed', error))
+      }
       adb.disconnected?.then(disconnected, disconnected)
       return adb
     })
@@ -361,8 +365,12 @@ class AndroidConnection {
     if (this.closing) return this.closing
     this.closed = true
     this.closing = Promise.resolve().then(async () => {
-      try { await this.adb?.close() }
-      finally { await this.device?.raw.close() }
+      try {
+        // Tango disposes the direct transport's sockets on disconnect. Its
+        // writer can already be closed, but we still own the native USB handle.
+        if (!this.device || !this.transportDisconnected) await this.adb?.close()
+        this.adb = undefined
+      } finally { await this.device?.raw.close() }
       // A new owner may claim the same native USB handle after this entry is
       // removed. Drain the interrupted handshake before allowing that claim.
       this.drained = Promise.allSettled([this.connecting, this.handshake]).then(() => {

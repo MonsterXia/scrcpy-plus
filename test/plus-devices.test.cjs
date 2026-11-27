@@ -207,6 +207,37 @@ test('a simultaneous first authorization cannot read a partially written host ke
   } finally { release(); await initial }
   assert.deepEqual(Buffer.from((await initial).buffer), Buffer.from(second.buffer))
 })
+test('unplugged Android mirror releases a failed ADB writer and can reconnect with the same serial', async t => {
+  const { Adb, AdbDaemonTransport } = await import('@yume-chan/adb')
+  const links = []
+  const f = androidFixture(directory(t), undefined, undefined, {}, {
+    '@yume-chan/adb': { Adb, AdbDaemonTransport: { authenticate: async ({ serial }) => {
+      const link = {}
+      links.push(link)
+      return new AdbDaemonTransport({
+        serial, version: 0x01000001, banner: 'device::', features: [],
+        connection: {
+          readable: new ReadableStream({ start(controller) { link.input = controller } }),
+          writable: new WritableStream({ start(controller) { link.output = controller } }),
+        },
+      })
+    } } },
+  })
+  const [target] = await f.discoverAndroid()
+  const mirror = new f.AndroidMirror(target)
+  await mirror.start(() => {}, () => {})
+  const detached = Error('USB device disconnected')
+  links[0].output.error(detached)
+  links[0].input.error(detached)
+  await mirror.close()
+  assert.equal(f.devices[0].closes, 1)
+  const replacement = new f.AndroidMirror(target)
+  await replacement.start(() => {}, () => {})
+  await replacement.close()
+  assert.equal(links.length, 2)
+  assert.equal(f.devices[0].closes, 2)
+})
+
 test('detached USB cleanup never reads descriptors and always closes the old handle',async t=>{
  const f=androidFixture(directory(t)),calls=[]
  const raw={open:async()=>{},transferIn:async()=>({}),transferOut:async()=>({}),claimInterface:async()=>{},

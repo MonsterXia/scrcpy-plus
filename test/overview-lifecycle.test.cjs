@@ -40,7 +40,7 @@ async function fixture(t, { strict = false } = {}) {
   const h = React.createElement
   let onClick
   const mocks = {
-    './Overview.module.scss': {}, '../workspace/DeviceSwitcher': () => null, '../../store': store,
+    './Overview.module.scss': {}, '../workspace/DeviceSwitcher': () => null, '../workspace/StartMirrorIcon': () => null, '../../store': store,
     'common/util': { t: key => key },
     'share/renderer/lib/util': { notify: (...args) => notifications.push(args) },
     'share/renderer/components/ToolbarIcon': props => {

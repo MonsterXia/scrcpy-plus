@@ -78,7 +78,15 @@ test('device selection, partial failure, focus, retry and layout have independen
     assert.deepEqual(started, ['a', 'h', 'h']); assert.equal(sessions.length, 2)
     await click('[data-action="start-receiver"]')
     assert.equal(sessions.at(-1).state, 'waiting')
+    // USB cleanup can finish between a failed stop IPC and the next session read.
+    const stop = main.stopMirrorSession
+    main.stopMirrorSession = async () => { throw Error('cleanup pending') }
     await click('[data-session-row="a"] [data-action="stop"]')
+    assert.equal(query('[role="alert"]').textContent, 'plusStopFailed')
+    assert.ok(query('[data-session-row="a"]'))
+    await stop('a')
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 1600)) })
+    assert.equal(query('[role="alert"]'), null)
     assert.equal(sessions.length, 2); assert.ok(query('[data-device-row="a"]'))
     await click('[data-device-row="a"] input')
     await act(async () => { runInAction(() => { store.targets = store.targets.filter(t => t.key !== 'a') }); await tick() })

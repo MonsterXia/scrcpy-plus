@@ -3,10 +3,10 @@ const { test } = require('node:test')
 const { EventEmitter } = require('node:events')
 const { transformSync } = require('esbuild')
 const fs = require('node:fs'), vm = require('node:vm')
-function fixture(deferClose = false) {
+function fixture(deferClose = false, platform = 'win32') {
   const handlers={}, events=[], instances=[]
   let restored=0
-  const parent={getBounds:()=>({x:100,y:100,width:800,height:600}),isDestroyed:()=>false,isMinimized:()=>true,restore:()=>restored++,show(){},isAlwaysOnTop:()=>true}
+  const parent=Object.assign(new EventEmitter(), {getBounds:()=>({x:100,y:100,width:800,height:600}),isDestroyed:()=>false,isMinimized:()=>!restored,isVisible:()=>true,restore:()=>restored++,show(){},isAlwaysOnTop:()=>true})
   class BrowserWindow extends EventEmitter {
     static getFocusedWindow(){return null}
     constructor(options){super();this.options=options;this.rect=options;this.webContents=new EventEmitter();this.webContents.mainFrame={};this.webContents.send=(...args)=>events.push(args);instances.push(this)}
@@ -16,13 +16,17 @@ function fixture(deferClose = false) {
     setMenu(){}
     loadFile(){return Promise.resolve()}
     show(){this.shown=true}
+    hide(){this.shown=false}
+    showInactive(){this.shown=true}
+    isVisible(){return !!this.shown}
+    moveTop(){this.raised=true}
     focus(){this.focused=true}
     close(){if(deferClose){this.finishClose=()=>{this.destroyed=true;this.emit('closed')};return}this.destroyed=true;this.emit('closed')}
     destroy(){this.destroyed=true;this.emit('closed')}
   }
   const module={exports:{}}
   vm.runInNewContext(transformSync(fs.readFileSync('src/main/window/update.ts','utf8'),{loader:'ts',format:'cjs'}).code,{
-    module,exports:module.exports,__dirname:'/fixture/main',console,
+    module,exports:module.exports,__dirname:'/fixture/main',console,process:{platform},
     require(id){
       if(id==='electron')return {BrowserWindow,ipcMain:{handle:(key,fn)=>handlers[key]=fn},screen:{getDisplayMatching:()=>({workArea:{x:0,y:0,width:1600,height:1000}})}}
       if(id==='share/main/lib/window')return {getWin:()=>parent}
@@ -30,13 +34,14 @@ function fixture(deferClose = false) {
       return require(id)
     },
   })
-  return {api:module.exports,instances,handlers,events,restored:()=>restored}
+  return {api:module.exports,parent,instances,handlers,events,restored:()=>restored}
 }
 const state={status:'checking',productName:'Scrcpy Harmony',currentVersion:'1.0.4-dev.0'}
 test('update window restores a minimized parent and keeps progress/results in one pinned child',()=>{
   const f=fixture();f.api.showUpdateWindow(state,()=>{})
   const w=f.instances[0]
   assert.equal(f.restored(),1)
+  assert.equal(w.options.parent,f.parent)
   assert.equal(w.options.alwaysOnTop,true)
   assert.equal(w.options.width,400);assert.equal(w.options.height,146)
   w.emit('ready-to-show');assert.equal(w.shown,true);assert.equal(w.focused,true)
@@ -70,4 +75,30 @@ test('cancel and immediate reopen cannot reuse a window awaiting asynchronous cl
   const current=f.instances[1]
   assert.equal(f.handlers.getUpdateState({sender:current.webContents,senderFrame:current.webContents.mainFrame}).status,'checking')
   assert.deepEqual(newActions,[])
+})
+
+test('macOS update window drags independently and follows its owner lifecycle', () => {
+  const f = fixture(false, 'darwin')
+  f.api.showUpdateWindow(state, () => {})
+  const [window] = f.instances
+  assert.equal(window.options.parent, undefined)
+  assert.equal(window.options.alwaysOnTop, true)
+  f.parent.isVisible = () => false
+  window.emit('ready-to-show')
+  assert.equal(window.isVisible(), false)
+  f.parent.isVisible = () => true
+  for (const [show, hide] of [['show', 'hide'], ['restore', 'minimize']]) {
+    f.parent.emit(show)
+    assert.equal(window.isVisible(), true)
+    f.parent.emit(hide)
+    assert.equal(window.isVisible(), false)
+  }
+  f.parent.emit('restore')
+  f.parent.emit('focus')
+  assert.equal(window.raised, true)
+  f.parent.emit('closed')
+  assert.equal(window.isDestroyed(), true)
+  for (const event of ['show', 'hide', 'restore', 'minimize', 'focus', 'closed']) {
+    assert.equal(f.parent.listenerCount(event), 0)
+  }
 })

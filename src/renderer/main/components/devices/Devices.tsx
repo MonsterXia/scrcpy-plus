@@ -38,6 +38,7 @@ export default observer(function Devices() {
   const [error, setError] = useState('')
   const [layout, setLayout] = useState<MirrorLayout>('independent')
   const alive = useRef(false), operation = useRef(false), revision = useRef(0)
+  const lastStopId = useRef('')
   const activePanel = store.panel === 'devices'
   const available = store.targets.filter(device => device.transport !== 'receiver' && !sessions.some(session => session.deviceKey === device.key))
   const selectable = available.filter(ready).map(device => device.key)
@@ -74,7 +75,8 @@ export default observer(function Devices() {
       const [next, nextLayout] = await Promise.all([main.getMirrorSessions(), main.getMirrorLayout()])
       if (alive.current && request === revision.current) {
         setSessions(next); setLayout(nextLayout === 'merged' ? 'merged' : 'independent')
-        setError(previous => previous === 'plusSessionRefreshFailed' ? '' : previous)
+        const stopped = !next.some(session => session.id === lastStopId.current)
+        setError(previous => previous === 'plusSessionRefreshFailed' || (previous === 'plusStopFailed' && stopped) ? '' : previous)
       }
     } catch (error) {
       if (alive.current && request === revision.current) throw error
@@ -113,7 +115,10 @@ export default observer(function Devices() {
     })
   }
   const focus = (key: string) => run('focus', 'plusFocusFailed', () => main.focusMirror(key))
-  const stop = (id: string) => run(`stop:${id}`, 'plusStopFailed', () => main.stopMirrorSession(id))
+  const stop = (id: string) => run(`stop:${id}`, 'plusStopFailed', () => {
+    lastStopId.current = id
+    return main.stopMirrorSession(id)
+  })
   const applyLayout = (next: MirrorLayout) => run('layout', 'plusLayoutFailed', () => main.applyMirrorLayout({ layout: next }))
   function toggle(key: string) {
     setSelected(previous => previous.includes(key) ? previous.filter(item => item !== key) : [...previous, key])

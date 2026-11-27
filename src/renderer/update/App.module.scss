@@ -70,6 +70,11 @@
   .icon { width: 64px; height: 64px; margin-left: -1px; margin-bottom: 18px; }
   .actions { position: absolute; bottom: 15px; left: 15px; right: 15px; }
 }
+// The macOS popover already clips the entire window to its native corners.
+:global(.platform-mac) .panel {
+  border: 0;
+  border-radius: 0;
+}
 .with-secondary { --action-space: 94px; }
 @keyframes check-progress { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 @media (prefers-reduced-motion: reduce) { .progress span { animation: none; width: 100%; background: #007aff; } }

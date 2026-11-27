@@ -46,9 +46,12 @@ export function showUpdateWindow(state: UpdateState, action: typeof onAction) {
   if (parent?.isMinimized()) parent.restore()
   parent?.show()
   const { width, height } = size(state)
+  // AppKit throttles dragging an attached child window. Keep the owner for
+  // placement and lifecycle, but let WindowServer move this window independently.
+  const macOwner = process.platform === 'darwin' ? parent : undefined
   const instance = new BrowserWindow({
     ...bounds(width, height, parent),
-    parent,
+    parent: macOwner ? undefined : parent,
     show: false,
     frame: false,
     transparent: true,
@@ -66,8 +69,26 @@ export function showUpdateWindow(state: UpdateState, action: typeof onAction) {
   })
   win = instance
   instance.setMenu(null)
+  let ready = false
+  if (macOwner) {
+    const hide = () => instance.hide()
+    const restore = () => { if (ready) instance.showInactive() }
+    const raise = () => { if (instance.isVisible()) instance.moveTop() }
+    const close = () => instance.destroy()
+    macOwner.on('hide', hide).on('minimize', hide)
+    macOwner.on('show', restore).on('restore', restore)
+    macOwner.on('focus', raise).once('closed', close)
+    instance.once('closed', () => {
+      macOwner.off('hide', hide).off('minimize', hide)
+      macOwner.off('show', restore).off('restore', restore)
+      macOwner.off('focus', raise).off('closed', close)
+    })
+  }
   instance.once('ready-to-show', () => {
-    if (!instance.isDestroyed()) { instance.show(); instance.focus() }
+    ready = true
+    if (instance.isDestroyed() || (macOwner && (!macOwner.isVisible() || macOwner.isMinimized()))) return
+    instance.show()
+    instance.focus()
   })
   instance.on('closed', () => {
     if (win !== instance) return
