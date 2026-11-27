@@ -19,6 +19,8 @@ function fixture(deferClose = false, platform = 'win32') {
     hide(){this.shown=false}
     showInactive(){this.shown=true}
     isVisible(){return !!this.shown}
+    isAlwaysOnTop(){return this.options.alwaysOnTop}
+    setAlwaysOnTop(value){this.options.alwaysOnTop=value}
     moveTop(){this.raised=true}
     focus(){this.focused=true}
     close(){if(deferClose){this.finishClose=()=>{this.destroyed=true;this.emit('closed')};return}this.destroyed=true;this.emit('closed')}
@@ -86,7 +88,13 @@ test('macOS update window drags independently and follows its owner lifecycle', 
   f.parent.isVisible = () => false
   window.emit('ready-to-show')
   assert.equal(window.isVisible(), false)
+  f.api.focusUpdateWindow()
+  assert.equal(window.isVisible(), false)
   f.parent.isVisible = () => true
+  f.parent.isMinimized = () => true
+  f.api.showUpdateWindow(state, () => {})
+  assert.equal(window.isVisible(), false)
+  f.parent.isMinimized = () => false
   for (const [show, hide] of [['show', 'hide'], ['restore', 'minimize']]) {
     f.parent.emit(show)
     assert.equal(window.isVisible(), true)
@@ -94,11 +102,16 @@ test('macOS update window drags independently and follows its owner lifecycle', 
     assert.equal(window.isVisible(), false)
   }
   f.parent.emit('restore')
+  f.parent.isAlwaysOnTop = () => false
+  f.parent.emit('always-on-top-changed')
+  assert.equal(window.isAlwaysOnTop(), false)
+  f.parent.isAlwaysOnTop = () => true
   f.parent.emit('focus')
+  assert.equal(window.isAlwaysOnTop(), true)
   assert.equal(window.raised, true)
   f.parent.emit('closed')
   assert.equal(window.isDestroyed(), true)
-  for (const event of ['show', 'hide', 'restore', 'minimize', 'focus', 'closed']) {
+  for (const event of ['show', 'hide', 'restore', 'minimize', 'focus', 'always-on-top-changed', 'closed']) {
     assert.equal(f.parent.listenerCount(event), 0)
   }
 })

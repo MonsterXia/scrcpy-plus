@@ -5,6 +5,7 @@ import * as window from 'share/main/lib/window'
 import { isDev } from 'share/common/util'
 
 let win: BrowserWindow | null = null
+let present: (() => void) | undefined
 let current: UpdateState
 let onAction: (action: UpdateAction) => void | Promise<void>
 let registered = false
@@ -73,26 +74,40 @@ export function showUpdateWindow(state: UpdateState, action: typeof onAction) {
   if (macOwner) {
     const hide = () => instance.hide()
     const restore = () => { if (ready) instance.showInactive() }
-    const raise = () => { if (instance.isVisible()) instance.moveTop() }
+    const syncPin = () => {
+      const pinned = macOwner.isAlwaysOnTop()
+      if (instance.isAlwaysOnTop() !== pinned) instance.setAlwaysOnTop(pinned)
+    }
+    const raise = () => {
+      syncPin()
+      if (instance.isVisible()) instance.moveTop()
+    }
     const close = () => instance.destroy()
     macOwner.on('hide', hide).on('minimize', hide)
     macOwner.on('show', restore).on('restore', restore)
+    macOwner.on('always-on-top-changed', syncPin)
     macOwner.on('focus', raise).once('closed', close)
     instance.once('closed', () => {
       macOwner.off('hide', hide).off('minimize', hide)
       macOwner.off('show', restore).off('restore', restore)
+      macOwner.off('always-on-top-changed', syncPin)
       macOwner.off('focus', raise).off('closed', close)
     })
   }
-  instance.once('ready-to-show', () => {
-    ready = true
-    if (instance.isDestroyed() || (macOwner && (!macOwner.isVisible() || macOwner.isMinimized()))) return
+  const show = () => {
+    if (!ready || instance.isDestroyed() || (macOwner && (!macOwner.isVisible() || macOwner.isMinimized()))) return
     instance.show()
     instance.focus()
+  }
+  present = show
+  instance.once('ready-to-show', () => {
+    ready = true
+    show()
   })
   instance.on('closed', () => {
     if (win !== instance) return
     win = null
+    present = undefined
     void onAction('close')
   })
   instance.webContents.on('did-finish-load', () => {
@@ -114,9 +129,7 @@ export function setUpdateState(state: UpdateState) {
 }
 
 export function focusUpdateWindow() {
-  if (!win || win.isDestroyed()) return
-  win.show()
-  win.focus()
+  present?.()
 }
 
 export function closeUpdateWindow() {
@@ -124,5 +137,6 @@ export function closeUpdateWindow() {
   // This window has no editable state. Detach before destruction so a new
   // check cannot reuse a closing window or inherit its delayed closed event.
   win = null
+  present = undefined
   if (instance && !instance.isDestroyed()) instance.destroy()
 }

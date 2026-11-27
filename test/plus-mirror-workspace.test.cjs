@@ -87,6 +87,8 @@ test('device selection, partial failure, focus, retry and layout have independen
     await stop('a')
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 1600)) })
     assert.equal(query('[role="alert"]'), null)
+    await click('[data-session-row="h"] [data-action="stop"]')
+    assert.equal(query('[role="alert"]').textContent, 'plusStopFailed')
     assert.equal(sessions.length, 2); assert.ok(query('[data-device-row="a"]'))
     await click('[data-device-row="a"] input')
     await act(async () => { runInAction(() => { store.targets = store.targets.filter(t => t.key !== 'a') }); await tick() })

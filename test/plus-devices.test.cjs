@@ -207,11 +207,18 @@ test('a simultaneous first authorization cannot read a partially written host ke
   } finally { release(); await initial }
   assert.deepEqual(Buffer.from((await initial).buffer), Buffer.from(second.buffer))
 })
-test('unplugged Android mirror releases a failed ADB writer and can reconnect with the same serial', async t => {
+for (const delayNotification of [false, true]) test(`unplugged Android mirror releases a failed ADB writer and reconnects (delayed notification: ${delayNotification})`, async t => {
   const { Adb, AdbDaemonTransport } = await import('@yume-chan/adb')
   const links = []
+  const notification = Promise.withResolvers()
+  class FixtureAdb extends Adb {
+    get disconnected() {
+      const disconnected = super.disconnected
+      return delayNotification ? disconnected.finally(() => notification.promise) : disconnected
+    }
+  }
   const f = androidFixture(directory(t), undefined, undefined, {}, {
-    '@yume-chan/adb': { Adb, AdbDaemonTransport: { authenticate: async ({ serial }) => {
+    '@yume-chan/adb': { Adb: FixtureAdb, AdbDaemonTransport: { authenticate: async ({ serial }) => {
       const link = {}
       links.push(link)
       return new AdbDaemonTransport({
@@ -229,7 +236,7 @@ test('unplugged Android mirror releases a failed ADB writer and can reconnect wi
   const detached = Error('USB device disconnected')
   links[0].output.error(detached)
   links[0].input.error(detached)
-  await mirror.close()
+  try { await mirror.close() } finally { notification.resolve() }
   assert.equal(f.devices[0].closes, 1)
   const replacement = new f.AndroidMirror(target)
   await replacement.start(() => {}, () => {})

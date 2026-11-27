@@ -361,16 +361,24 @@ class AndroidConnection {
     await this.close()
     await this.drained
   }
+  private async closeTransport() {
+    try {
+      // Tango disposes direct transport sockets when it reports a disconnect.
+      if (!this.device || !this.transportDisconnected) await this.adb?.close()
+    } catch (error) {
+      // A stop can reach an already closed writer before that report arrives.
+      const failure = error as NodeJS.ErrnoException
+      const writerClosed = failure?.code === 'ERR_INVALID_STATE' && /WritableStream is closed/i.test(failure.message)
+      if (!this.device || !(this.transportDisconnected || writerClosed || usbDisconnected(error))) throw error
+    }
+    this.adb = undefined
+  }
   close(): Promise<void> {
     if (this.closing) return this.closing
     this.closed = true
     this.closing = Promise.resolve().then(async () => {
-      try {
-        // Tango disposes the direct transport's sockets on disconnect. Its
-        // writer can already be closed, but we still own the native USB handle.
-        if (!this.device || !this.transportDisconnected) await this.adb?.close()
-        this.adb = undefined
-      } finally { await this.device?.raw.close() }
+      try { await this.closeTransport() }
+      finally { await this.device?.raw.close() }
       // A new owner may claim the same native USB handle after this entry is
       // removed. Drain the interrupted handshake before allowing that claim.
       this.drained = Promise.allSettled([this.connecting, this.handshake]).then(() => {
