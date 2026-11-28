@@ -290,7 +290,9 @@ async def log_rows(lockdown):
     async with OsTraceService(lockdown) as service:
         async for line in service.syslog(message_filter=OS_TRACE_RELAY_MESSAGE_FILTER_ALL,
                                          stream_flags=int(Flags.PAYLOAD | Flags.DEBUG | Flags.INFO)):
-            yield {'timestamp': line.timestamp.astimezone().isoformat(timespec='milliseconds'),
+            # os_trace already decodes the device timestamp to host-local datetime.
+            # Converting it again can fail near the Unix epoch on Windows.
+            yield {'timestamp': line.timestamp.isoformat(timespec='milliseconds'),
                    'process': posixpath.basename(line.filename)[:512], 'pid': line.pid,
                    'level': line.level.name or str(int(line.level)), 'message': line.message[:4096]}
 

@@ -326,18 +326,21 @@ class DeviceWorkspaceTests(unittest.IsolatedAsyncioTestCase):
         from pymobiledevice3.services.os_trace import (
             OS_TRACE_RELAY_MESSAGE_FILTER_ALL, SyslogLogLevel, OsActivityStreamFlag,
         )
+        timestamp = datetime.fromtimestamp(1).replace(microsecond=123000)
+
         async def entries(**kwargs):
             self.assertFalse(kwargs['stream_flags'] & OsActivityStreamFlag.HISTORICAL)
             self.assertEqual(kwargs['message_filter'], OS_TRACE_RELAY_MESSAGE_FILTER_ALL)
             for level in (SyslogLogLevel.NOTICE, SyslogLogLevel.ERROR, SyslogLogLevel.FAULT):
                 yield SimpleNamespace(pid=41, message='a' * 8192, filename='/bin/demo', level=level,
-                                      timestamp=datetime.fromtimestamp(1))
+                                      timestamp=timestamp)
         trace = self.stack.enter_context(patch('pymobiledevice3.services.os_trace.OsTraceService'))
         trace.return_value.__aenter__.return_value.syslog = entries
         await self.run_op('logs')
         self.assertEqual([row['level'] for row in self.rows], ['NOTICE', 'ERROR', 'FAULT'])
         self.assertEqual((self.rows[0]['pid'], self.rows[0]['process']), (41, 'demo'))
         self.assertEqual(len(self.rows[0]['message']), 4096)
+        self.assertEqual(self.rows[0]['timestamp'], timestamp.isoformat(timespec='milliseconds'))
 
     async def test_locked_device_reports_unlock_for_every_service(self):
         for op in workspace.FIELDS:
