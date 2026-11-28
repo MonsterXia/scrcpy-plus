@@ -6,11 +6,14 @@ type Row = IosWorkspaceRows[keyof IosWorkspaceRows]
 // The frozen device helper emits one JSON record per line. Keep streams and
 // terminal operations on the selected USB device for the life of this process.
 export async function runIosHelper(
-  executable: string, udid: string, request: IosWorkspaceRequest & { path?: string },
-  signal: AbortSignal, onRow: (row: Row) => void,
+  executable: string, udid: string, request: (IosWorkspaceRequest & { path?: string }) | { op: 'cleanupStaging' },
+  signal: AbortSignal, onRow: (row: Row) => void, stagingRoot?: string,
 ) {
   signal.throwIfAborted()
-  const child = spawn(executable, ['--workspace', '--cancel-on-eof'], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true })
+  const child = spawn(executable, ['--workspace', '--cancel-on-eof'], {
+    stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true,
+    env: stagingRoot ? { ...process.env, SCRCPY_PLUS_IOS_STAGING_ROOT: stagingRoot } : process.env,
+  })
   const exit = new Promise<number | null>((resolve, reject) => {
     child.once('error', reject)
     child.once('close', resolve)

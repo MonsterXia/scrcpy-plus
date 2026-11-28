@@ -7,6 +7,7 @@ export function deviceErrorText(error: string) {
     case 'device-locked': return t('iosToolsLocked')
     case 'trust-computer': return t('iosToolsTrust')
     case 'disconnected': return t('iosToolsDisconnected')
+    case 'developer-usb-version': return t('iosToolsDeveloperUsbVersion')
     case 'developer-services': return t('iosToolsDeveloper')
     case 'file-access': return t('iosToolsFileError')
     case 'app-unavailable': return t('iosToolsAppError')

@@ -20,7 +20,7 @@ function fixture(provisioning = {}, clock = Date) {
   function load(file, mocks) {
     const module = { exports: {} }
     vm.runInNewContext(transformSync(fs.readFileSync(file, 'utf8'), { loader: 'ts', format: 'cjs' }).code,
-      { module, exports: module.exports, console, AbortController, Date: clock,
+      { module, exports: module.exports, console, AbortController, AbortSignal, Date: clock,
         require: id => Object.hasOwn(mocks, id) ? mocks[id] : require(id) })
     return module.exports
   }
@@ -618,8 +618,9 @@ test('workspace snapshot releases its temporary session and reuses a running mir
   assert.equal(f.windows.length, 0)
   assert.equal(f.backends[0].closed, true)
   await f.nativeMirrors.start(phone)
+  const startingSnapshot = f.nativeMirrors.iosWorkspaceSnapshot(phone, 'screenshot', signal)
   await f.invoke('nativeMirrorOpen', f.windows[0])
-  await f.nativeMirrors.iosWorkspaceSnapshot(phone, 'screenshot', signal)
+  await startingSnapshot
   assert.equal(f.backends.length, 2)
   assert.equal(f.backends[1].closed, false)
   await f.nativeMirrors.dispose()

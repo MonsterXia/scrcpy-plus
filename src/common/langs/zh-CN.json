@@ -452,6 +452,7 @@
   "iosToolsTrust": "请解锁 iPhone，选择信任这台电脑后重试。",
   "iosToolsLocked": "请解锁 iPhone 后重试。",
   "iosToolsDisconnected": "iPhone 已断开，请重新连接并刷新。",
+  "iosToolsDeveloperUsbVersion": "iOS 17.0 至 17.3 缺少此工具需要的 USB 开发者服务。升级到 iOS 17.4 或更高版本后可启动应用和结束进程。",
   "iosToolsDeveloper": "请启用开发者模式，并在 iPhone 准备中检查开发者服务。",
   "iosToolsFileError": "此目录不可读取。请选择媒体目录或已开启文件共享的应用。",
   "iosToolsAppError": "此应用已不可用，请刷新应用列表。",

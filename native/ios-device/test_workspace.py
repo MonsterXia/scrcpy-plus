@@ -11,7 +11,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import workspace
-from pymobiledevice3.exceptions import AppInstallError, InvalidServiceError, PasswordRequiredError
+from pymobiledevice3.exceptions import AfcFileNotFoundError, AppInstallError, InvalidServiceError, PasswordRequiredError
+from pymobiledevice3.services.afc import AfcError
 
 SERIAL = '01234567'
 BUNDLE = 'com.example.Reader'
@@ -65,6 +66,8 @@ class DeviceWorkspaceTests(unittest.IsolatedAsyncioTestCase):
         self.proxy = proxy_factory.return_value.__aenter__.return_value
         self.proxy.lookup.return_value = {BUNDLE: {'ApplicationType': 'User'}}
         self.rows = []
+        journal = self.stack.enter_context(tempfile.TemporaryDirectory())
+        self.stack.enter_context(patch.dict(os.environ, {'SCRCPY_PLUS_IOS_STAGING_ROOT': journal}))
 
     async def run_op(self, op, **values):
         request = {'op': op, 'udid': SERIAL, **values}
@@ -102,6 +105,7 @@ class DeviceWorkspaceTests(unittest.IsolatedAsyncioTestCase):
     async def test_partial_ipa_install_removes_only_its_own_staging_file(self):
         afc = self.stack.enter_context(patch(AFC)).return_value.__aenter__.return_value
         afc.fopen.return_value = 42
+        afc.rm_single.return_value = True
         self.proxy.send_package.side_effect = AppInstallError('device denied')
         with tempfile.TemporaryDirectory() as temp:
             ipa = Path(temp) / 'sample.ipa'
@@ -113,11 +117,13 @@ class DeviceWorkspaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([len(call.args[1]) for call in afc.fwrite.await_args_list], [1024 * 1024, 3])
         afc.fclose.assert_awaited_once_with(42)
         self.proxy.send_package.assert_awaited_once_with('Install', {}, None, remote)
-        afc.rm_single.assert_awaited_once_with(remote, force=True)
+        afc.rm_single.assert_awaited_once_with(remote)
+        self.assertFalse(list(workspace.staging_directory(SERIAL).glob('*.ipa')))
 
     async def test_closing_parent_pipe_cancels_upload_and_releases_staging_file(self):
         afc = self.stack.enter_context(patch(AFC)).return_value.__aenter__.return_value
         afc.fopen.return_value = 42
+        afc.rm_single.return_value = True
         uploading = asyncio.Event()
 
         async def write(*args):
@@ -138,7 +144,128 @@ class DeviceWorkspaceTests(unittest.IsolatedAsyncioTestCase):
                     await asyncio.wait_for(task, 3)
         afc.fclose.assert_awaited_once_with(42)
         self.proxy.send_package.assert_not_awaited()
-        afc.rm_single.assert_awaited_once_with(afc.fopen.await_args.args[0], force=True)
+        afc.rm_single.assert_awaited_once_with(afc.fopen.await_args.args[0])
+        self.assertFalse(list(workspace.staging_directory(SERIAL).glob('*.ipa')))
+
+    async def test_unplug_recovery_is_scoped_and_lost_deletion_reply_is_retryable(self):
+        afc = self.stack.enter_context(patch(AFC)).return_value.__aenter__.return_value
+        afc.fwrite.side_effect = ConnectionResetError()
+        afc.rm_single.side_effect = ConnectionResetError()
+        with tempfile.TemporaryDirectory() as temp:
+            ipa = Path(temp) / 'incoming.ipa'
+            ipa.write_bytes(b'partial')
+            with self.assertRaises(ConnectionResetError):
+                await self.run_op('install', path=str(ipa))
+        remote = afc.fopen.await_args.args[0]
+        directory = workspace.staging_directory(SERIAL)
+        marker, = directory.glob('*.ipa')
+        self.assertEqual(marker.name, Path(remote).name)
+        self.proxy.send_package.assert_not_awaited()
+        (directory / 'manually-placed.ipa').touch()
+        # Another phone reattaches before this one.
+        afc.rm_single.reset_mock()
+        await workspace.operate({'op': 'cleanupStaging', 'udid': '98765432'}, self.rows.append)
+        afc.rm_single.assert_not_awaited()
+        # The first recovery deletes the file but loses the AFC success response.
+        with self.assertRaises(ConnectionResetError):
+            await self.run_op('cleanupStaging')
+        self.assertTrue(marker.exists())
+        afc.rm_single.side_effect = AfcFileNotFoundError('not found', AfcError.OBJECT_NOT_FOUND)
+        await self.run_op('cleanupStaging')
+        await self.run_op('cleanupStaging')
+        self.assertEqual([call.args for call in afc.rm_single.await_args_list], [(remote,), (remote,)])
+        self.assertFalse(marker.exists())
+        self.assertTrue((directory / 'manually-placed.ipa').exists())
+        self.proxy.send_package.assert_not_awaited()
+
+    async def test_recovery_does_not_clear_marker_on_ambiguous_afc_response(self):
+        afc = self.stack.enter_context(patch(AFC)).return_value.__aenter__.return_value
+        directory = workspace.staging_directory(SERIAL)
+        with workspace.lock_staging(directory):
+            marker = workspace.record_upload(directory)
+        afc.rm_single.side_effect = AfcFileNotFoundError('read error', AfcError.READ_ERROR)
+        with self.assertRaises(AfcFileNotFoundError):
+            await self.run_op('cleanupStaging')
+        self.assertTrue(marker.exists())
+        afc.rm_single.side_effect = None
+        afc.rm_single.return_value = False
+        with self.assertRaises(OSError):
+            await self.run_op('cleanupStaging')
+        self.assertTrue(marker.exists())
+        afc.rm_single.return_value = True
+        await self.run_op('cleanupStaging')
+        self.assertFalse(marker.exists())
+
+    async def test_helper_crash_releases_lock_and_retains_durable_marker(self):
+        directory = workspace.staging_directory(SERIAL)
+        script = ("from workspace import lock_staging, record_upload; from pathlib import Path; import sys, os\n"
+                  "with lock_staging(directory := Path(sys.argv[1])):\n record_upload(directory)\n os._exit(71)")
+        child = await asyncio.create_subprocess_exec(sys.executable, '-c', script, str(directory),
+                                                     cwd=Path(workspace.__file__).parent)
+        self.assertEqual(await asyncio.wait_for(child.wait(), 5), 71)
+        marker, = directory.glob('*.ipa')
+        afc = self.stack.enter_context(patch(AFC)).return_value.__aenter__.return_value
+        afc.rm_single.return_value = True
+        await self.run_op('cleanupStaging')
+        afc.rm_single.assert_awaited_once_with('/PublicStaging/pymobiledevice3/' + marker.name)
+        self.assertFalse(marker.exists())
+
+    async def test_active_upload_owns_lock_across_processes_until_cleanup(self):
+        afc = self.stack.enter_context(patch(AFC)).return_value.__aenter__.return_value
+        uploading = asyncio.Event()
+        finish = asyncio.Event()
+        directory = workspace.staging_directory(SERIAL)
+
+        async def write(*args):
+            self.assertEqual(len(list(directory.glob('*.ipa'))), 1)
+            uploading.set()
+            await finish.wait()
+
+        async def child_lock():
+            script = ("from workspace import lock_staging; from pathlib import Path; import sys\n"
+                      "try:\n with lock_staging(Path(sys.argv[1])): print('acquired')\n"
+                      "except ValueError as error: print(str(error))")
+            child = await asyncio.create_subprocess_exec(
+                sys.executable, '-c', script, str(directory), cwd=Path(workspace.__file__).parent,
+                stdout=asyncio.subprocess.PIPE)
+            stdout, _ = await asyncio.wait_for(child.communicate(), 5)
+            self.assertEqual(child.returncode, 0)
+            return stdout.strip()
+
+        afc.fwrite.side_effect = write
+        afc.rm_single.return_value = True
+        with tempfile.TemporaryDirectory() as temp:
+            ipa = Path(temp) / 'test.ipa'
+            ipa.write_bytes(b'data')
+            install = asyncio.create_task(self.run_op('install', path=str(ipa)))
+            try:
+                await asyncio.wait_for(uploading.wait(), 3)
+                self.assertEqual(await child_lock(), b'busy')
+                with self.assertRaisesRegex(ValueError, 'busy'):
+                    await self.run_op('cleanupStaging')
+                afc.rm_single.assert_not_awaited()
+            finally:
+                finish.set()
+                await install
+        self.assertEqual(await child_lock(), b'acquired')
+        self.assertFalse(list(directory.glob('*.ipa')))
+
+    async def test_ios_17_before_usb_proxy_explains_launch_and_keeps_readonly_pid_list(self):
+        proxy = self.stack.enter_context(patch('pymobiledevice3.remote.tunnel_service.CoreDeviceTunnelProxy.create'))
+        trace = self.stack.enter_context(patch('pymobiledevice3.services.os_trace.OsTraceService'))
+        trace.return_value.__aenter__.return_value.get_pid_list.return_value = {'Payload': {'42': {'ProcessName': 'App'}}}
+        for version in ('17', '17.0.1', '17.3.1'):
+            self.lockdown.product_version = version
+            with self.assertRaisesRegex(ValueError, 'developer-usb-version'):
+                await self.run_op('launch', bundleId=BUNDLE)
+        await self.run_op('processes')
+        self.assertEqual(self.rows, [{'name': 'App', 'pid': 42}])
+        proxy.assert_not_called()
+        self.lockdown.product_version = '17.4.0'
+        proxy.side_effect = InvalidServiceError('missing', SERIAL, '17.4.0')
+        with self.assertRaises(InvalidServiceError):
+            await self.run_op('launch', bundleId=BUNDLE)
+        proxy.assert_awaited_once()
 
     async def test_process_rows_join_by_device_bundle_id_never_executable_name(self):
         self.stack.enter_context(patch(DVT))
@@ -196,16 +323,20 @@ class DeviceWorkspaceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_live_log_stream_maps_device_records_and_bounds_messages(self):
         from datetime import datetime
-        from pymobiledevice3.services.os_trace import SyslogLogLevel, OsActivityStreamFlag
+        from pymobiledevice3.services.os_trace import (
+            OS_TRACE_RELAY_MESSAGE_FILTER_ALL, SyslogLogLevel, OsActivityStreamFlag,
+        )
         async def entries(**kwargs):
             self.assertFalse(kwargs['stream_flags'] & OsActivityStreamFlag.HISTORICAL)
-            yield SimpleNamespace(pid=41, message='a' * 8192, filename='/bin/demo', level=SyslogLogLevel.ERROR,
-                                  timestamp=datetime.fromtimestamp(1))
+            self.assertEqual(kwargs['message_filter'], OS_TRACE_RELAY_MESSAGE_FILTER_ALL)
+            for level in (SyslogLogLevel.NOTICE, SyslogLogLevel.ERROR, SyslogLogLevel.FAULT):
+                yield SimpleNamespace(pid=41, message='a' * 8192, filename='/bin/demo', level=level,
+                                      timestamp=datetime.fromtimestamp(1))
         trace = self.stack.enter_context(patch('pymobiledevice3.services.os_trace.OsTraceService'))
         trace.return_value.__aenter__.return_value.syslog = entries
         await self.run_op('logs')
-        self.assertEqual(len(self.rows), 1)
-        self.assertEqual((self.rows[0]['pid'], self.rows[0]['level'], self.rows[0]['process']), (41, 'ERROR', 'demo'))
+        self.assertEqual([row['level'] for row in self.rows], ['NOTICE', 'ERROR', 'FAULT'])
+        self.assertEqual((self.rows[0]['pid'], self.rows[0]['process']), (41, 'demo'))
         self.assertEqual(len(self.rows[0]['message']), 4096)
 
     async def test_locked_device_reports_unlock_for_every_service(self):

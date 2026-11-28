@@ -26,6 +26,7 @@ interface Session {
   ready: boolean
   automation?: AutomationWindowObserver
   gate: FrameGate
+  firstOpen: PromiseWithResolvers<void>
   starting?: Promise<void>
   stopping?: Promise<void>
   usbMissing?: boolean
@@ -140,7 +141,7 @@ class NativeMirrors {
       brand: target.brand, platform: target.platform!, state: 'starting' },
       target: createMirrorTarget(receiver ? { ...target, key, name: 'AirPlay', connectionId: undefined, transport: 'receiver' } : target,
         Array.from(this.sessions.values(), session => session.target.mirrorTitle)),
-      window: win, contents, ready: false, gate: new FrameGate(), setupCalls: new Set(), videoRequested: target.platform === 'ios' && target.transport === 'usb' }
+      window: win, contents, ready: false, firstOpen: Promise.withResolvers<void>(), gate: new FrameGate(), setupCalls: new Set(), videoRequested: target.platform === 'ios' && target.transport === 'usb' }
     this.sessions.set(id, session)
     session.automation = this.automationHooks?.({ target: session.target, window: win, contents, gui, close: () => this.stop(id) })
     win.on('close', event => { if (session.automation?.closeRequested()) event.preventDefault() })
@@ -201,6 +202,7 @@ class NativeMirrors {
     if (session.manualSetup) return Promise.reject(new Error('iOS setup in progress'))
     if (session.starting) return session.starting
     if (session.backend && !['error', 'disconnected'].includes(session.info.state)) return Promise.resolve()
+    session.firstOpen.resolve()
     let backend: AndroidMirror | AirplayMirror | IosMirror | undefined = session.backend
     session.starting = (async () => {
       if (session.target.platform === 'ios' && session.target.transport === 'usb') {
@@ -267,6 +269,7 @@ class NativeMirrors {
     if (reason === 'gui' && session.automation?.closeRequested()) return Promise.resolve()
     if (session.stopping) return session.stopping
     for (const call of session.setupCalls) call.abort(Error('cancelled'))
+    session.firstOpen.resolve()
     const wasReady = session.ready
     session.automation?.state('stopping')
     session.info.state = 'stopping'; session.ready = false; session.gate.reset()
@@ -314,6 +317,9 @@ class NativeMirrors {
     }
     const session = [...this.sessions.values()].find(session => session.info.deviceKey === target.key)
     if (session) {
+      if (session.info.state === 'starting' && !session.starting) {
+        await waitForSetup(session.firstOpen.promise, AbortSignal.any([signal, AbortSignal.timeout(15000)]))
+      }
       if (session.starting) await waitForSetup(session.starting, signal)
       if (session.stopping || session.info.state !== 'running' || !(session.backend instanceof IosMirror)) throw Error('iOS mirror unavailable')
       return session.backend.workspaceSnapshot(panel, signal)

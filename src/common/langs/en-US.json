@@ -452,6 +452,7 @@
   "iosToolsTrust": "Unlock the iPhone and trust this computer, then retry.",
   "iosToolsLocked": "Unlock the iPhone, then retry.",
   "iosToolsDisconnected": "Reconnect the iPhone and refresh.",
+  "iosToolsDeveloperUsbVersion": "iOS 17.0–17.3 cannot launch or end apps through this USB developer service. These actions are available again on iOS 17.4 or later.",
   "iosToolsDeveloper": "Enable Developer Mode and check developer services in iPhone setup.",
   "iosToolsFileError": "Choose the media folder or an app that allows file sharing.",
   "iosToolsAppError": "This app is unavailable. Refresh the app list.",

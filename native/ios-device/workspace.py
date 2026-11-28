@@ -1,5 +1,7 @@
 """USB iOS workspace operations. Each helper process serves one NDJSON request."""
 import asyncio
+import errno
+import hashlib
 import json
 import logging
 import os
@@ -9,20 +11,20 @@ import signal
 import sys
 import threading
 import uuid
-from contextlib import asynccontextmanager, redirect_stdout
+from contextlib import asynccontextmanager, contextmanager, redirect_stdout
 from pathlib import Path
 
 LIMIT = 4096
 BUNDLE = re.compile(r'[A-Za-z0-9][A-Za-z0-9.-]{0,254}')
 FIELDS = {
     'apps': (), 'processes': (), 'logs': (), 'webPages': (),
-    'install': ('path',), 'uninstall': ('bundleId',), 'launch': ('bundleId',),
+    'cleanupStaging': (), 'install': ('path',), 'uninstall': ('bundleId',), 'launch': ('bundleId',),
     'terminate': ('pid', 'bundleId'), 'webDom': ('targetId',), 'files': ('path',),
 }
 APP_FIELDS = ['ApplicationType', 'CFBundleIdentifier', 'CFBundleDisplayName', 'CFBundleName',
               'CFBundleShortVersionString', 'CFBundleVersion', 'UIFileSharingEnabled']
 ERRORS = {'protocol', 'app-unavailable', 'process-changed', 'file-access', 'result-limit',
-          'install-failed', 'uninstall-failed', 'launch-failed', 'developer-services',
+          'install-failed', 'uninstall-failed', 'launch-failed', 'developer-services', 'developer-usb-version', 'busy',
           'web-unavailable', 'web-busy', 'web-stale', 'web-timeout'}
 
 
@@ -96,13 +98,96 @@ def app_row(bundle, info):
             'fileSharing': shares_documents(info)}
 
 
-async def install_ipa(lockdown, proxy, path):
+STAGING_NAME = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.ipa')
+
+
+def staging_directory(udid):
+    root = Path(os.environ.get('SCRCPY_PLUS_IOS_STAGING_ROOT', ''))
+    if not root.is_absolute():
+        raise ValueError('protocol')
+    return root / hashlib.sha256(udid.lower().encode('ascii')).hexdigest()
+
+
+@contextmanager
+def lock_staging(directory):
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # Keep this inode even when no uploads remain. Unlinking a locked file
+    # would let a second helper acquire a different lock on the same device.
+    with (directory / '.lock').open('a+b') as lock:
+        lock.seek(0)
+        try:
+            if sys.platform == 'win32':
+                import msvcrt
+                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as error:
+            if error.errno in (errno.EACCES, errno.EAGAIN):
+                raise ValueError('busy') from error
+            raise
+        try:
+            yield
+        finally:
+            if sys.platform == 'win32':
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+            # Closing the file releases flock on Unix; process exit releases both locks.
+
+
+def record_upload(directory):
+    marker = directory / f'{uuid.uuid4()}.ipa'
+    with marker.open('xb') as stream:
+        os.fsync(stream.fileno())
+    if sys.platform != 'win32':
+        fd = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    return marker
+
+
+async def remove_upload(afc, marker):
+    from pymobiledevice3.exceptions import AfcFileNotFoundError
+    from pymobiledevice3.services.afc import AfcError
+    from pymobiledevice3.services.installation_proxy import TEMP_REMOTE_BASEDIR
+    try:
+        removed = await afc.rm_single(f'{TEMP_REMOTE_BASEDIR}/{marker.name}')
+        if removed is not True:
+            raise OSError('Unconfirmed staging removal')
+    except AfcFileNotFoundError as error:
+        if error.status != AfcError.OBJECT_NOT_FOUND:
+            raise
+    marker.unlink()
+
+
+async def cleanup_staging(lockdown, directory):
+    from pymobiledevice3.exceptions import AfcException
+    from pymobiledevice3.services.afc import AfcService
+    with lock_staging(directory):
+        markers = [entry for entry in directory.iterdir()
+                   if STAGING_NAME.fullmatch(entry.name) and not entry.is_symlink() and entry.is_file()]
+        if markers:
+            async with AfcService(lockdown) as afc:
+                last_error = None
+                for marker in markers:
+                    try:
+                        await remove_upload(afc, marker)
+                    except AfcException as error:
+                        # A single busy or inaccessible path must not strand later uploads.
+                        last_error = error
+                if last_error is not None:
+                    raise last_error
+
+
+async def install_ipa(lockdown, proxy, path, directory):
     from pymobiledevice3.services.afc import AfcService
     from pymobiledevice3.services.installation_proxy import TEMP_REMOTE_BASEDIR
-    remote = f'{TEMP_REMOTE_BASEDIR}/{uuid.uuid4()}.ipa'
-    async with AfcService(lockdown) as afc:
-        await afc.makedirs(TEMP_REMOTE_BASEDIR)
-        with path.open('rb') as source:
+    with lock_staging(directory), path.open('rb') as source:
+        async with AfcService(lockdown) as afc:
+            await afc.makedirs(TEMP_REMOTE_BASEDIR)
+            marker = record_upload(directory)
+            remote = f'{TEMP_REMOTE_BASEDIR}/{marker.name}'
             try:
                 handle = await afc.fopen(remote, 'w')
                 try:
@@ -112,14 +197,27 @@ async def install_ipa(lockdown, proxy, path):
                     await afc.fclose(handle)
                 await proxy.send_package('Install', {}, None, remote)
             finally:
-                await afc.rm_single(remote, force=True)
+                # Keep the durable marker on disconnect, cancellation or a lost reply.
+                # Cleanup failures must not turn a confirmed installation into a retry.
+                try:
+                    await remove_upload(afc, marker)
+                except Exception:
+                    pass
+
+
+class UnsupportedUsbDeveloperVersion(ValueError):
+    pass
 
 
 @asynccontextmanager
 async def developer_provider(lockdown):
     # Instruments is available directly on older iOS. On newer devices bind
     # the tunnel to the already selected USB connection, including on Wi-Fi-paired hosts.
-    if int(lockdown.product_version.split('.')[0]) < 17:
+    parts = lockdown.product_version.split('.')
+    major = int(parts[0])
+    if major == 17 and (len(parts) == 1 or int(parts[1]) < 4):
+        raise UnsupportedUsbDeveloperVersion('developer-usb-version')
+    if major < 17:
         yield lockdown
         return
     from pymobiledevice3.remote.tunnel_service import CoreDeviceTunnelProxy
@@ -145,7 +243,7 @@ async def process_rows(lockdown):
             async with InstallationProxyService(lockdown) as proxy:
                 apps = await installed_apps(proxy)
         users = {bid for bid, app in apps.items() if app.get('ApplicationType') == 'User'}
-    except (PyMobileDevice3Exception, TimeoutError, OSError):
+    except (PyMobileDevice3Exception, TimeoutError, OSError, UnsupportedUsbDeveloperVersion):
         # Without a developer service, os_trace still exposes PID/name. It
         # does not establish a process-to-bundle identity for termination.
         async with OsTraceService(lockdown) as trace:
@@ -186,9 +284,12 @@ async def control_app(lockdown, request):
 
 
 async def log_rows(lockdown):
-    from pymobiledevice3.services.os_trace import OsActivityStreamFlag as Flags, OsTraceService
+    from pymobiledevice3.services.os_trace import (
+        OS_TRACE_RELAY_MESSAGE_FILTER_ALL, OsActivityStreamFlag as Flags, OsTraceService,
+    )
     async with OsTraceService(lockdown) as service:
-        async for line in service.syslog(stream_flags=int(Flags.PAYLOAD | Flags.DEBUG | Flags.INFO)):
+        async for line in service.syslog(message_filter=OS_TRACE_RELAY_MESSAGE_FILTER_ALL,
+                                         stream_flags=int(Flags.PAYLOAD | Flags.DEBUG | Flags.INFO)):
             yield {'timestamp': line.timestamp.astimezone().isoformat(timespec='milliseconds'),
                    'process': posixpath.basename(line.filename)[:512], 'pid': line.pid,
                    'level': line.level.name or str(int(line.level)), 'message': line.message[:4096]}
@@ -249,7 +350,9 @@ async def operate(request, emit_row):
     from pymobiledevice3.services.installation_proxy import InstallationProxyService
     op = request['op']
     async with await create_using_usbmux(serial=request['udid'], connection_type='USB', autopair=False) as lockdown:
-        if op in ('webPages', 'webDom'):
+        if op == 'cleanupStaging':
+            await cleanup_staging(lockdown, staging_directory(request['udid']))
+        elif op in ('webPages', 'webDom'):
             from web_inspection import inspect_web
             await inspect_web(lockdown, request, emit_row)
         elif op == 'files':
@@ -262,7 +365,7 @@ async def operate(request, emit_row):
             bundle = request.get('bundleId')
             async with InstallationProxyService(lockdown) as proxy:
                 if op == 'install':
-                    await install_ipa(lockdown, proxy, Path(request['path']))
+                    await install_ipa(lockdown, proxy, Path(request['path']), staging_directory(request['udid']))
                     return
                 apps = await installed_apps(proxy, bundle)
                 if op == 'apps':

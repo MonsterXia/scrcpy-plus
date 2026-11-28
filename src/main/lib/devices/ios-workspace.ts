@@ -1,9 +1,13 @@
-import { BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { createHash } from 'node:crypto'
+import { readdir } from 'node:fs/promises'
+import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { ITarget } from 'common/types'
 import type { IosWorkspaceRequest, IosWorkspaceRows } from 'common/iosWorkspace'
 import { isDev } from 'share/common/util'
 import { resolve } from 'share/main/lib/util'
+import { waitForSetup } from '../ios-provisioning/manager'
 import { getIosHelper } from '../ios-provisioning'
 import { runIosHelper } from './ios-workspace-runner'
 
@@ -37,6 +41,11 @@ function validate(request: IosWorkspaceRequest): IosWorkspaceRequest {
 export function initIosWorkspace(contents: WebContents, find: (key: string) => ITarget | undefined) {
   const calls = new Map<string, { key: string; abort: AbortController; mutation: boolean }>()
   const running = new Set<Promise<void>>()
+  const recovering = new Map<string, AbortController>()
+  const retryAfter = new Map<string, number>()
+  const stagingRoot = path.join(app.getPath('userData'), 'ios-ipa-staging')
+  const marker = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.ipa$/
+  let disposed = false
   const url = isDev() ? 'http://localhost:8080/' : pathToFileURL(resolve('renderer/index.html')).href
   function owner(event: IpcMainInvokeEvent) {
     if (event.sender !== contents || event.senderFrame !== contents.mainFrame || event.senderFrame?.url !== url) throw Error('protocol')
@@ -47,12 +56,49 @@ export function initIosWorkspace(contents: WebContents, find: (key: string) => I
         !target.connectionId || key !== 'ios:' + target.connectionId) throw Error('disconnected')
     return target.connectionId
   }
-  function stopAll() {
+  function cancelRequests() {
     for (const { abort } of calls.values()) abort.abort(Error('cancelled'))
+  }
+  function stopAll() {
+    disposed = true
+    cancelRequests()
+    for (const abort of recovering.values()) abort.abort(Error('cancelled'))
     return Promise.allSettled([...running])
   }
-  contents.on('did-start-navigation', details => { if (details.isMainFrame && !details.isSameDocument) stopAll() })
-  contents.on('render-process-gone', stopAll)
+  function checkStaging(key: string, udid: string) {
+    if (disposed || recovering.has(key) || (retryAfter.get(key) ?? 0) > Date.now()) return
+    if ([...calls.values()].some(call => call.key === key && call.mutation)) return
+    const abort = new AbortController()
+    recovering.set(key, abort)
+    const timer = setTimeout(() => abort.abort(Error('timeout')), 60_000)
+    const work = (async () => {
+      const deviceDirectory = createHash('sha256').update(udid.toLowerCase()).digest('hex')
+      let entries
+      try {
+        entries = await readdir(path.join(stagingRoot, deviceDirectory), { withFileTypes: true })
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+        throw error
+      }
+      if (!entries.some(entry => entry.isFile() && marker.test(entry.name))) return
+      abort.signal.throwIfAborted()
+      const executable = await waitForSetup(getIosHelper().deviceExecutable(), abort.signal)
+      await runIosHelper(executable, udid, { op: 'cleanupStaging' }, abort.signal, () => {}, stagingRoot)
+    })().catch(() => {
+      // A locked device, a busy uploader, or an unconfirmed delete keeps its markers.
+      // Reconnecting bypasses the cooldown; discovery retries while the device stays online.
+      if (!abort.signal.aborted || abort.signal.reason?.message === 'timeout')
+        retryAfter.set(key, Date.now() + 30_000)
+    }).finally(() => {
+      clearTimeout(timer)
+      recovering.delete(key)
+      running.delete(work)
+    })
+    running.add(work)
+    return work
+  }
+  contents.on('did-start-navigation', details => { if (details.isMainFrame && !details.isSameDocument) cancelRequests() })
+  contents.on('render-process-gone', cancelRequests)
   contents.once('destroyed', stopAll)
   ipcMain.handle('ios:cancelWorkspace', (event, id: string) => {
     owner(event)
@@ -60,6 +106,7 @@ export function initIosWorkspace(contents: WebContents, find: (key: string) => I
   })
   ipcMain.handle('ios:workspace', async (event, key: string, input: IosWorkspaceRequest, id: string) => {
     owner(event)
+    if (disposed) throw Error('cancelled')
     const request = validate(input)
     device(key)
     if (typeof id !== 'string' || !/^[a-z0-9_-]{1,100}$/i.test(id) || calls.has(id) || calls.size >= 16) throw Error('protocol')
@@ -82,7 +129,9 @@ export function initIosWorkspace(contents: WebContents, find: (key: string) => I
       if (request.op === 'install') {
         const win = BrowserWindow.fromWebContents(contents)
         if (!win) throw Error('cancelled')
-        const choice = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name: 'IPA', extensions: ['ipa'] }] })
+        const choice = await waitForSetup(dialog.showOpenDialog(win, {
+          properties: ['openFile'], filters: [{ name: 'IPA', extensions: ['ipa'] }],
+        }), abort.signal)
         if (choice.canceled || !choice.filePaths[0]) throw Error('cancelled')
         helperInput = { op: 'install', path: choice.filePaths[0] }
       }
@@ -101,7 +150,7 @@ export function initIosWorkspace(contents: WebContents, find: (key: string) => I
           if (rows.length >= 10000 || bytes > 16 * 1024 * 1024) throw Error('result-limit')
           rows.push(row)
         }
-      })
+      }, request.op === 'install' ? stagingRoot : undefined)
       running.add(work)
       try { await work } finally { running.delete(work) }
       if (request.op === 'logs') flush()
@@ -120,6 +169,15 @@ export function initIosWorkspace(contents: WebContents, find: (key: string) => I
     reconcile(targets: ITarget[]) {
       const ready = new Set(targets.filter(target => target.transport === 'usb' && target.state === 'ready').map(target => target.key))
       for (const call of calls.values()) if (!ready.has(call.key)) call.abort.abort(Error('disconnected'))
+      for (const [key, abort] of recovering) if (!ready.has(key)) abort.abort(Error('disconnected'))
+      for (const key of retryAfter.keys()) if (!ready.has(key)) retryAfter.delete(key)
+      const checks: Array<Promise<void> | undefined> = []
+      for (const target of targets) {
+        const udid = target.connectionId
+        if (target.platform === 'ios' && udid && /^[a-f0-9-]{8,64}$/i.test(udid) &&
+            target.key === 'ios:' + udid && ready.has(target.key)) checks.push(checkStaging(target.key, udid))
+      }
+      return Promise.all(checks)
     },
   }
 }

@@ -34,25 +34,32 @@ function useDeviceRequests(key: string) {
 const Logs = observer(function Logs({ deviceKey }: { deviceKey: string }) {
   const [rows, setRows] = useState<IosLogRow[]>([])
   const [streaming, setStreaming] = useState(true)
+  const [revision, setRevision] = useState(0)
+  const activeId = useRef<string | undefined>(undefined)
   const [query, setQuery] = useState('')
   const [error, setError] = useState('')
   useEffect(() => {
     if (!streaming) return
     const id = window.crypto.randomUUID()
-    let active = true
+    activeId.current = id
     const off = main.on('ios:workspaceLogs', (source: string, batch: IosLogRow[]) => {
-      if (source === id && active) setRows(old => old.concat(batch).slice(-1000))
+      if (source === id && activeId.current === id) setRows(old => old.concat(batch).slice(-1000))
     })
     setError('')
     void main.runIosWorkspace(deviceKey, { op: 'logs' }, id)
-      .catch(cause => { if (active) setError(String(cause)) })
-      .finally(() => { if (active) setStreaming(false) })
+      .catch(cause => { if (activeId.current === id) setError(String(cause)) })
+      .finally(() => { if (activeId.current === id) setStreaming(false) })
     return () => {
-      active = false
+      activeId.current = undefined
       off()
       void main.cancelIosWorkspace(id).catch(() => {})
     }
-  }, [deviceKey, streaming])
+  }, [deviceKey, revision, streaming])
+  function clear() {
+    activeId.current = undefined
+    setRows([])
+    if (streaming) setRevision(value => value + 1)
+  }
   const alert = error && deviceErrorText(error)
   const match = query.trim().toLowerCase()
   const lines = rows.map(row => [row.timestamp, row.process, row.pid, row.level, row.message].join('  '))
@@ -62,7 +69,7 @@ const Logs = observer(function Logs({ deviceKey }: { deviceKey: string }) {
     <div className={Style.toolbar}>
       <Filter value={query} change={setQuery} />
       <button onClick={() => setStreaming(!streaming)}>{t(streaming ? 'iosToolsPause' : 'iosToolsResume')}</button>
-      <button disabled={!rows.length} onClick={() => setRows([])}>{t('iosToolsClear')}</button>
+      <button disabled={!rows.length} onClick={clear}>{t('iosToolsClear')}</button>
     </div>
     {alert && <p role="alert">{alert}</p>}
     <pre className={Style.logs} tabIndex={0}>{lines.length ? lines.join('\n') :
