@@ -1,0 +1,35 @@
+.page {
+  position: absolute;
+  inset: 0;
+  padding: 24px;
+  overflow: auto;
+  color: var(--workspace-text);
+  background: var(--workspace-surface);
+  h1 { font-size: 23px; margin: 0 0 16px; }
+  p, small { color: var(--workspace-secondary); }
+  p[role='alert'] { color: var(--workspace-danger); }
+  button, input, select {
+    font: inherit;
+    color: inherit;
+    background: var(--workspace-surface);
+    border: 1px solid var(--workspace-line);
+    border-radius: 7px;
+    padding: 7px 10px;
+    max-width: 100%;
+  }
+  button { cursor: pointer; }
+  button:hover:enabled { background: var(--workspace-hover); }
+  button:disabled { opacity: .5; cursor: default; }
+  :focus-visible { outline: 2px solid var(--workspace-accent); }
+  ul { margin: 12px 0 0; padding: 0; }
+  li {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 8px; padding: 10px 0;
+    border-bottom: 1px solid var(--workspace-line); overflow-wrap: anywhere;
+  }
+  small { display: block; margin-top: 3px; }
+  code, pre, li { user-select: text; }
+}
+.toolbar, .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.toolbar { margin-bottom: 14px; }
+.logs { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }

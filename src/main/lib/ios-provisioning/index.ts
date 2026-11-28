@@ -11,14 +11,22 @@ let loading: Promise<IosProvisioning> | undefined
 let busy: (udid: string) => boolean = () => false
 let stopped = false
 export function setIosProvisioningBusy(check: (udid: string) => boolean) { busy = check }
+function helperRoot() {
+  return path.join(app.isPackaged ? process.resourcesPath : path.join(app.getAppPath(), 'resources'), 'ios-provisioning')
+}
+export function getIosHelper() {
+  const userData = app.getPath('userData')
+  helper ??= new IosHelper(helperRoot(), createHash('sha256').update(userData).digest('hex'), !app.isPackaged, path.join(userData, 'ios-reservations'))
+  return helper
+}
 async function getManager() {
   if (stopped) throw Error('cancelled')
   if (loading) return loading
   if (manager) return manager
   if (!loading) loading = (async () => {
     const userData = app.getPath('userData'), file = path.join(userData,'ios-provisioning.json')
-    const root = app.isPackaged ? path.join(process.resourcesPath,'ios-provisioning') : path.join(app.getAppPath(),'resources','ios-provisioning')
-    helper = new IosHelper(root,createHash('sha256').update(userData).digest('hex'), !app.isPackaged,path.join(userData,'ios-reservations'))
+    const root = helperRoot()
+    const deviceHelper = getIosHelper()
     const data: SetupData = { devices: {} }
     try {
       const raw = await fs.readFile(file,'utf8'); if (raw.length > 65536) throw Error('protocol')
@@ -29,7 +37,7 @@ async function getManager() {
     } catch { /* A fresh profile has no managed devices. */ }
     let saveTail = Promise.resolve()
     manager = new IosProvisioning({
-      run: (kind,payload,event,signal) => helper!.run(kind,payload,event,signal),
+      run: (kind,payload,event,signal) => deviceHelper.run(kind,payload,event,signal),
       save: value => {
         const serialized = JSON.stringify(value)
         saveTail = saveTail.catch(() => {}).then(async () => {

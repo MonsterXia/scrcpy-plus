@@ -137,6 +137,10 @@ test('App keeps application settings mounted across device changes and no-device
   }
   const mocks = {
     './store': store,
+    'common/util': { t: key => key },
+    './components/ios/IosDeviceTools': () => null,
+    './components/ios/IosWdaTools': () => null,
+    './components/ios/IosWebTools': () => null,
     './components/devices/Devices': () => null,
     '../lib/useHapDrop': () => {},
     './components/workspace/Workspace': ({ children }) =>

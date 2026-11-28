@@ -16,6 +16,8 @@ export default observer(function Workspace({
 }: PropsWithChildren<{ onOpenSettings: () => void }>) {
   useMainFeedback(store.theme)
   const ios = store.overviewTarget?.platform === 'ios'
+  const iosUnavailable = ios && (store.overviewTarget?.state !== 'ready' || store.overviewTarget?.transport !== 'usb')
+  const actionTarget = ios ? store.overviewTarget : store.target
   const groups = [
     {
       title: t('workspaceDevices'),
@@ -28,8 +30,8 @@ export default observer(function Workspace({
     {
       title: t('workspaceDebugging'),
       items: [
-        { id: 'shell', label: t('shell'), icon: 'terminal' },
-        { id: 'hilog', label: t(store.target?.platform === 'android' ? 'androidLogcat' : 'hilog'), icon: 'list' },
+        { id: 'shell', label: t(ios ? 'iosDeviceFiles' : 'shell'), icon: ios ? 'file' : 'terminal' },
+        { id: 'hilog', label: t(ios ? 'iosDeviceLogs' : store.target?.platform === 'android' ? 'androidLogcat' : 'hilog'), icon: 'list' },
         { id: 'process', label: t('process'), icon: 'processor' },
         { id: 'layout', label: t('layout'), icon: 'debug' },
         { id: 'webview', label: t('webview'), icon: 'browser' },
@@ -83,8 +85,8 @@ export default observer(function Workspace({
                   aria-current={store.panel === item.id ? 'page' : undefined}
                   aria-controls={`panel-${item.id}`}
                   aria-label={item.label}
-                  disabled={item.id !== 'overview' && ios}
-                  title={item.id !== 'overview' && ios ? t('plusDeviceToolsPlatforms') : item.label}
+                  disabled={item.id !== 'overview' && iosUnavailable}
+                  title={item.id !== 'overview' && iosUnavailable ? t('iosToolsTrust') : item.label}
                   onClick={() => store.selectPanel(item.id)}
                 >
                   <span className={`icon-${item.icon}`} aria-hidden="true" />
@@ -130,11 +132,11 @@ export default observer(function Workspace({
               className={Style.secondaryButton}
               type="button"
               data-action="screencast"
-              disabled={!store.ready || !store.target}
-              title={!store.target ? t('targetNotConnected') : t('screencast')}
+              disabled={!store.ready || !actionTarget || iosUnavailable}
+              title={!actionTarget || iosUnavailable ? t('targetNotConnected') : t('screencast')}
               onClick={() => {
                 void main
-                  .showScreencast(store.target?.key)
+                  .showScreencast(actionTarget?.key)
                   .catch(() => notify(t('commonErr'), { icon: 'error' }))
               }}
             >

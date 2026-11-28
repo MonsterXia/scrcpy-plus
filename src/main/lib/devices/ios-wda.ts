@@ -1,13 +1,29 @@
 import http from 'node:http'
+import { waitForSetup } from '../ios-provisioning/manager'
 import { connectIos } from './ios-usbmux'
 
 const MAX_RESPONSE = 48 * 1024 * 1024
 export interface WdaResponse { value: any; sessionId?: string | null }
 export class WdaClient {
+  private sessionCommands: Promise<unknown> = Promise.resolve()
   constructor(readonly udid: string) {}
   // One USB socket per request. Neither HTTP redirects nor failed writes are retried.
   async request(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown, signal?: AbortSignal, timeoutMs = 10000): Promise<WdaResponse> {
     if (!/^\/[a-zA-Z0-9_/?=.-]*$/.test(path)) throw new Error('Invalid WDA route')
+    if (!path.startsWith('/session/')) return this.exchange(method, path, body, signal, timeoutMs)
+    // The Runner executes session commands serially. Start the transport timeout
+    // when this command can run, so a slow hierarchy does not disconnect a mirror.
+    const work = this.sessionCommands.then(() => {
+      signal?.throwIfAborted()
+      // Once XCTest starts snapshotting, closing its socket does not cancel the
+      // device-side work. Let it drain while its caller can leave immediately.
+      const hierarchy = method === 'GET' && path.endsWith('/source?format=json')
+      return this.exchange(method, path, body, hierarchy ? undefined : signal, timeoutMs)
+    })
+    this.sessionCommands = work.catch(() => {})
+    return waitForSetup(work, signal)
+  }
+  private async exchange(method: 'GET' | 'POST' | 'DELETE', path: string, body: unknown, signal: AbortSignal | undefined, timeoutMs: number): Promise<WdaResponse> {
     const controller = new AbortController()
     const abort = () => controller.abort(new Error('WDA request cancelled'))
     signal?.addEventListener('abort', abort, { once: true })

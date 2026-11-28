@@ -46,3 +46,26 @@ test('WDA rejects redirects, malformed envelopes and oversized announced bodies'
   for (const p of ['/redirect','/large','/bad']) await assert.rejects(f.client.request('GET', p))
   assert.equal(f.seen.length, 3)
 })
+test('a mirror poll starts its deadline after the hierarchy command drains, even when its caller cancels', async t => {
+  const source = '/session/ours/source?format=json', screen = '/session/ours/wda/screen'
+  let finish, started
+  const receiving = new Promise(resolve => { started = resolve })
+  const f = await fixture(t, (req, res) => {
+    if (req.url === source) { finish = () => res.end('{"value":{"error":"stale element"}}'); started() }
+    else res.end('{"value":"ready"}')
+  })
+  const caller = new AbortController()
+  const layout = f.client.request('GET', source, undefined, caller.signal, 5000)
+  await receiving
+  const poll = f.client.request('GET', screen, undefined, undefined, 500)
+  caller.abort(Error('left panel'))
+  await assert.rejects(layout, /left panel/)
+  const closing = f.client.request('DELETE', '/session/ours', undefined, undefined, 500)
+  // This is longer than the poll's own deadline. The phone is still processing XCTest.
+  await new Promise(resolve => setTimeout(resolve, 650))
+  assert.deepEqual(f.seen.map(item => item.path), [source])
+  finish()
+  assert.equal((await poll).value, 'ready')
+  await closing
+  assert.deepEqual(f.seen.map(item => item.path), [source, screen, '/session/ours'])
+})

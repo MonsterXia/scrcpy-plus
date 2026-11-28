@@ -2,6 +2,8 @@ import type { ITarget, NativeMirrorInput } from 'common/types'
 import { UnsafeInputFault, type InputAction } from '../../automation/input'
 import type { NativeFrame } from './media'
 import { WdaClient, pngSize } from './ios-wda'
+import type { IosWdaPanel, IosWdaSnapshot } from 'common/iosWdaTools'
+import { parseIosLayout } from './ios-layout'
 import { IosVideo } from './ios-video'
 import { ownershipRunner, WdaAllocation } from './ios-ownership'
 
@@ -39,27 +41,42 @@ export class IosMirror {
     if (this.startWork) return this.startWork
     this.frame = frame; this.state = state
     this.startWork = (async () => {
-      this.check()
-      const status = await this.client.request('GET', '/status', undefined, this.lifetime.signal)
-      this.runnerId = ownershipRunner(status)
-      if (status.sessionId) throw new Error('WDA already in use; use a dedicated runner')
-      // Do not cancel session creation mid-response: close waits for the bounded
-      // result so it can delete exactly the session it created.
-      this.allocation.begin(this.runnerId)
-      const result = await this.client.request('POST', '/session', { scrcpyPlusRunnerId: this.runnerId, capabilities: { alwaysMatch: {} } })
-      if (result.value?.scrcpyPlusSessionBusy || result.value?.scrcpyPlusRunnerChanged) {
-        this.allocation.settled()
-        throw new Error('WDA ownership changed; retry with a dedicated runner')
-      }
-      const id = result.value?.sessionId
-      if (typeof id !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(id)) throw new Error('Invalid WDA session identifier')
-      this.sessionId = id; this.allocation.settled()
-      this.check()
-      await this.client.request('POST', this.path('/appium/settings'), { settings: { screenshotQuality: 0 } }, this.lifetime.signal)
+      await this.openSession(this.lifetime.signal)
       await this.capture()
       this.schedule()
     })()
     return this.startWork
+  }
+  // A one-shot workspace capture uses the same atomic allocation and cleanup
+  // as a mirror, without starting frame polling or ReplayKit.
+  async workspaceSnapshot(panel: IosWdaPanel, caller: AbortSignal): Promise<IosWdaSnapshot> {
+    const signal = AbortSignal.any([caller, this.lifetime.signal])
+    this.check(signal)
+    if (!this.startWork) this.startWork = this.openSession(signal)
+    await this.startWork
+    this.check(signal)
+    const { data, size, geometry, elements } = await this.readSnapshot(panel === 'layout', signal)
+    return { png: data.toString('base64'), ...size, screenWidth: geometry.width, screenHeight: geometry.height, elements }
+  }
+  private async openSession(signal: AbortSignal) {
+    this.check(signal)
+    const status = await this.client.request('GET', '/status', undefined, signal)
+    this.check(signal)
+    this.runnerId = ownershipRunner(status)
+    if (status.sessionId) throw new Error('WDA already in use; use a dedicated runner')
+    // Do not cancel session creation mid-response: close waits for the bounded
+    // result so it can delete exactly the session it created.
+    this.allocation.begin(this.runnerId)
+    const result = await this.client.request('POST', '/session', { scrcpyPlusRunnerId: this.runnerId, capabilities: { alwaysMatch: {} } })
+    if (result.value?.scrcpyPlusSessionBusy || result.value?.scrcpyPlusRunnerChanged) {
+      this.allocation.settled()
+      throw new Error('WDA ownership changed; retry with a dedicated runner')
+    }
+    const id = result.value?.sessionId
+    if (typeof id !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(id)) throw new Error('Invalid WDA session identifier')
+    this.sessionId = id; this.allocation.settled()
+    this.check(signal)
+    await this.client.request('POST', this.path('/appium/settings'), { settings: { screenshotQuality: 0 } }, signal)
   }
   private report(state: string) {
     if (state === 'disconnected' || state === 'error') {
@@ -82,16 +99,24 @@ export class IosMirror {
     if (![w,h].every(n => Number.isFinite(n) && n > 0 && n <= 16384) || ![0,90,180,270].includes(rotation)) throw new Error('Invalid iOS screen geometry')
     return { width: rotation % 180 ? Math.max(w,h) : Math.min(w,h), height: rotation % 180 ? Math.min(w,h) : Math.max(w,h), rotation }
   }
+  private async readSnapshot(withLayout: boolean, signal: AbortSignal) {
+    const geometry = await this.readGeometry(signal)
+    const encoded = (await this.client.request('GET', this.path('/screenshot'), undefined, signal)).value
+    if (typeof encoded !== 'string' || encoded.length > 44 * 1024 * 1024 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) throw new Error('Invalid WDA screenshot')
+    const data = Buffer.from(encoded, 'base64'), size = pngSize(data)
+    const elements = withLayout
+      ? parseIosLayout((await this.client.request('GET', this.path('/source?format=json'), undefined, signal, 30000)).value)
+      : undefined
+    const rotation = (await this.client.request('GET', this.path('/rotation'), undefined, signal)).value?.z
+    if (rotation !== geometry.rotation || Math.abs(size.width / size.height - geometry.width / geometry.height) > 0.01) throw new Error('iOS screen changed during capture')
+    this.check(signal)
+    return { data, size, geometry, elements }
+  }
   private capture(): Promise<void> {
     if (this.readWork) return this.readWork
     this.readWork = (async () => {
-      const geometry = await this.readGeometry()
-      const encoded = (await this.client.request('GET', this.path('/screenshot'), undefined, this.lifetime.signal)).value
-      if (typeof encoded !== 'string' || encoded.length > 44 * 1024 * 1024 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) throw new Error('Invalid WDA screenshot')
-      const data = Buffer.from(encoded, 'base64'), size = pngSize(data)
-      const rotation = (await this.client.request('GET', this.path('/rotation'), undefined, this.lifetime.signal)).value?.z
-      if (rotation !== geometry.rotation || Math.abs(size.width / size.height - geometry.width / geometry.height) > 0.01) throw new Error('iOS screen changed during capture')
-      this.check()
+      const { data, geometry } = await this.readSnapshot(false, this.lifetime.signal)
+      const rotation = geometry.rotation
       this.geometry = geometry
       this.frame?.({ data, timestamp: Date.now() * 1000, format: 'png', rotation })
       this.report('connected')

@@ -20,7 +20,7 @@ function fixture(provisioning = {}, clock = Date) {
   function load(file, mocks) {
     const module = { exports: {} }
     vm.runInNewContext(transformSync(fs.readFileSync(file, 'utf8'), { loader: 'ts', format: 'cjs' }).code,
-      { module, exports: module.exports, console, AbortController, Date: clock,
+      { module, exports: module.exports, console, AbortController, AbortSignal, Date: clock,
         require: id => Object.hasOwn(mocks, id) ? mocks[id] : require(id) })
     return module.exports
   }
@@ -46,6 +46,7 @@ function fixture(provisioning = {}, clock = Date) {
       },
       loadPage(window) { window.mirrorView.webContents.emit('did-navigate') }, getWin() {},
     },
+    '../lib/devices/ios-ownership': load('src/main/lib/devices/ios-ownership.ts', {}),
     '../lib/devices/android': { AndroidMirror: Android },
     '../lib/devices/airplay': { AirplayMirror: Ios },
     '../lib/devices/ios': { IosMirror: class extends Android {} },
@@ -605,5 +606,46 @@ test('APK installation uses only the running Android mirror owned by the sending
   f.backends[1].state('disconnected')
   await assert.rejects(f.invoke('nativeMirrorInstallApk', f.windows[1], '/good.apk'), /unavailable/)
   assert.deepEqual(calls, [['android:b', '/good.apk']])
+  await f.nativeMirrors.dispose()
+})
+
+test('workspace snapshot releases its temporary session and reuses a running mirror without closing it', async () => {
+  const f = fixture()
+  f.Android.prototype.workspaceSnapshot = async function (panel) { return { panel } }
+  const phone = { ...usbIphone('01234567'), state: 'ready' }
+  const signal = new AbortController().signal
+  assert.equal((await f.nativeMirrors.iosWorkspaceSnapshot(phone, 'layout', signal)).panel, 'layout')
+  assert.equal(f.windows.length, 0)
+  assert.equal(f.backends[0].closed, true)
+  await f.nativeMirrors.start(phone)
+  const startingSnapshot = f.nativeMirrors.iosWorkspaceSnapshot(phone, 'screenshot', signal)
+  await f.invoke('nativeMirrorOpen', f.windows[0])
+  await startingSnapshot
+  assert.equal(f.backends.length, 2)
+  assert.equal(f.backends[1].closed, false)
+  await f.nativeMirrors.dispose()
+})
+test('failed headless cleanup keeps the reservation and allows the mirror window to show recovery guidance', async () => {
+  const f = fixture()
+  let finish
+  f.Android.prototype.workspaceSnapshot = () => new Promise(resolve => { finish = resolve })
+  const phone = { ...usbIphone('01234567'), state: 'ready' }
+  const capture = f.nativeMirrors.iosWorkspaceSnapshot(phone, 'screenshot', new AbortController().signal)
+  f.backends[0].close = async () => { throw Error('cleanup pending') }
+  await f.nativeMirrors.start(phone)
+  const win = f.windows[0]
+  const opening = f.invoke('nativeMirrorOpen', win)
+  assert.equal(f.backends.length, 1)
+  finish({})
+  await assert.rejects(capture, /cleanup pending/)
+  await assert.rejects(opening, /connection failed/)
+  assert.equal(f.nativeMirrors.list()[0].connectionIssue, 'ios-cleanup-unknown')
+  assert.equal((await f.invoke('iosSetup', win, { action: 'status' })).phase, 'idle')
+  await assert.rejects(f.invoke('iosSetup', win, { action: 'prepare' }), /restart the dedicated Runner/)
+  assert.equal(f.backends.length, 1)
+  f.backends[0].close = async () => {}
+  await f.nativeMirrors.start(phone)
+  assert.equal(f.windows.length, 1)
+  assert.equal(f.nativeMirrors.list()[0].state, 'running')
   await f.nativeMirrors.dispose()
 })

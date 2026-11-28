@@ -26,3 +26,10 @@ runs:
         # AirPlay with its original MinGW environment.
         if [[ "$RUNNER_OS" == "Windows" ]]; then unset CC CXX; fi
         npm run build:ios
+    - name: Test USB workspace services with the pinned device libraries
+      shell: bash
+      working-directory: native/ios-device
+      run: |
+        python_bin=../../build/ios-provisioning/venv/bin/python
+        if [[ "$RUNNER_OS" == "Windows" ]]; then python_bin=../../build/ios-provisioning/venv/Scripts/python.exe; fi
+        "$python_bin" -m unittest test_workspace test_web_inspection

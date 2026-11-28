@@ -16,6 +16,7 @@ function fixture(t, options = {}) {
       if (path.endsWith('/wda/screen')) return { value: { screenSize: { width: 390, height: 844 }, scale: 3 } }
       if (path.endsWith('/rotation') && options.readDelay) await new Promise(r => setTimeout(r, options.readDelay))
       if (path.endsWith('/rotation')) return { value: { x: 0, y: 0, z: rotation } }
+      if (path.endsWith('/source?format=json')) return { value: options.source }
       if (path.endsWith('/screenshot')) { if(options.failRead) { options.failRead--; throw Error('read ECONNRESET') } return { value: png.toString('base64') } }
       if (path.includes('/actions') && options.failInput) throw Error('Lost input acknowledgement')
       return { value: null }
@@ -249,4 +250,31 @@ for (const failure of ['stop', 'screenshot']) test(`manual video disable reports
  await assert.rejects(f.mirror.input({type:'touch',action:'up',x:.5,y:.5}))
  assert.equal(f.calls.some(c=>c.path.includes('/actions')),false)
  failStop=false
+})
+
+
+test('a headless layout and a mirror capture use the owned WDA session and screen-point bounds', async t => {
+  const node = { type: 'Button', name: 'OK', label: 'Okay', rect: { x: 12, y: 24, width: 30, height: 40 } }
+  const options = { source: { type: 'Application', children: [node] } }
+  const f = fixture(t, options)
+  const signal = new AbortController().signal
+  const result = await f.mirror.workspaceSnapshot('layout', signal)
+  assert.ok(Buffer.from(result.png, 'base64').equals(png))
+  assert.equal(result.screenWidth, 390)
+  assert.equal(result.screenHeight, 844)
+  assert.deepEqual(JSON.parse(JSON.stringify(result.elements[1])), { type: 'Button', depth: 1, name: 'OK', label: 'Okay', rect: node.rect })
+  assert.equal(f.frames.length, 0)
+  assert.equal(f.calls.filter(call => call.path.endsWith('/screenshot')).length, 1)
+  assert.ok(f.calls.some(call => call.path === '/session/our-session/source?format=json'))
+  const mirror = fixture(t)
+  await mirror.start()
+  await mirror.mirror.workspaceSnapshot('screenshot', signal)
+  assert.equal(mirror.calls.filter(call => call.path === '/session').length, 1)
+  assert.equal(mirror.calls.some(call => call.path.includes('/source')), false)
+})
+test('a headless capture refuses foreign WDA sessions and never deletes them', async t => {
+  const f = fixture(t, { busy: true })
+  await assert.rejects(f.mirror.workspaceSnapshot('layout', new AbortController().signal), /already in use/)
+  await f.mirror.close()
+  assert.deepEqual(f.calls.map(call => call.path), ['/status'])
 })

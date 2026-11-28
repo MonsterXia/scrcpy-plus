@@ -11,6 +11,7 @@ import * as screencast from '../../window/screencast'
 export const mirrorSessions = nativeMirrors
 const airplayReceiver: ITarget = { key: 'ios:airplay-receiver', name: 'AirPlay', platform: 'ios', transport: 'receiver', state: 'waiting', ohosVersion: '', sdkVersion: '' }
 let current = new Map<string, ITarget>()
+let reconcileTools: ((targets: ITarget[]) => void) | undefined
 let refreshing: Promise<DeviceDiscovery> | undefined
 let harmonyRead: Promise<ITarget[]> | undefined
 
@@ -39,7 +40,10 @@ async function discover(): Promise<DeviceDiscovery> {
   results.forEach((result, index) => {
     if (result.status === 'fulfilled') {
       targets.push(...result.value)
-      if (providers[index].name === 'ios') void mirrorSessions.reconcileIos(result.value)
+      if (providers[index].name === 'ios') {
+        reconcileTools?.(result.value)
+        void mirrorSessions.reconcileIos(result.value)
+      }
       const online = new Set(result.value.filter(target => target.state !== 'offline').map(target => target.key))
       for (const session of [...screencast.listSessions(), ...mirrorSessions.list()]) {
         if (session.platform === providers[index].name && session.deviceKey !== airplayReceiver.key && !online.has(session.deviceKey)) {
@@ -54,6 +58,9 @@ async function discover(): Promise<DeviceDiscovery> {
   current = new Map(targets.map(target => [target.key, target]))
   return { targets, errors }
 }
+export function getCurrentDevice(key: string) {
+  return current.get(key)
+}
 export async function startSelected(key: string) {
   if (typeof key !== 'string') throw new Error('Invalid device key')
   const target = current.get(key)
@@ -64,7 +71,8 @@ export async function startSelected(key: string) {
   }
   else await mirrorSessions.start(target)
 }
-export function init(disposeTools?: () => Promise<void>) {
+export function init(disposeTools?: () => Promise<void>, onIosDiscovery?: (targets: ITarget[]) => void) {
+  reconcileTools = onIosDiscovery
   handleEvent('getDevices', getDevices)
   handleEvent('getDeviceOverview', async (key: string) => {
     if (typeof key !== 'string') throw new Error('Invalid device key')

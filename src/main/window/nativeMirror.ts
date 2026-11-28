@@ -1,5 +1,7 @@
 import { iosSetup, prepareManagedIos, recoverManagedIos, setIosProvisioningBusy } from '../lib/ios-provisioning'
 import { waitForSetup } from '../lib/ios-provisioning/manager'
+import { WdaAllocationUnknown } from '../lib/devices/ios-ownership'
+import type { IosWdaPanel, IosWdaSnapshot } from 'common/iosWdaTools'
 import type { IosSetupAction } from 'common/iosProvisioning'
 import type { AutomationWindowHooks, AutomationWindowObserver } from '../automation/windowHooks'
 import { ipcMain, screen } from 'electron'
@@ -24,6 +26,7 @@ interface Session {
   ready: boolean
   automation?: AutomationWindowObserver
   gate: FrameGate
+  firstOpen: PromiseWithResolvers<void>
   starting?: Promise<void>
   stopping?: Promise<void>
   usbMissing?: boolean
@@ -52,10 +55,11 @@ export function validateNativeInput(input: NativeMirrorInput) {
 }
 class NativeMirrors {
   private sessions = new Map<string, Session>()
+  private snapshots = new Map<string, { backend: IosMirror; done: Promise<unknown> }>()
   private initialized = false
   private disposed = false
   private automationHooks?: AutomationWindowHooks
-  constructor() { setIosProvisioningBusy(udid => [...this.sessions.values()].some(s => s.target.connectionId === udid && !!s.backend && !['error','disconnected','stopping'].includes(s.info.state))) }
+  constructor() { setIosProvisioningBusy(udid => this.snapshots.has(`ios:${udid}`) || [...this.sessions.values()].some(s => s.target.connectionId === udid && !!s.backend && !['error','disconnected','stopping'].includes(s.info.state))) }
   setAutomationHooks(hooks: AutomationWindowHooks) { this.automationHooks = hooks }
   list() { return [...this.sessions.values()].map(session => ({ ...session.info })) }
   getWindows() { return [...this.sessions.values()].filter(session => !session.stopping && !session.window.isDestroyed()).map(session => session.window) }
@@ -137,7 +141,7 @@ class NativeMirrors {
       brand: target.brand, platform: target.platform!, state: 'starting' },
       target: createMirrorTarget(receiver ? { ...target, key, name: 'AirPlay', connectionId: undefined, transport: 'receiver' } : target,
         Array.from(this.sessions.values(), session => session.target.mirrorTitle)),
-      window: win, contents, ready: false, gate: new FrameGate(), setupCalls: new Set(), videoRequested: target.platform === 'ios' && target.transport === 'usb' }
+      window: win, contents, ready: false, firstOpen: Promise.withResolvers<void>(), gate: new FrameGate(), setupCalls: new Set(), videoRequested: target.platform === 'ios' && target.transport === 'usb' }
     this.sessions.set(id, session)
     session.automation = this.automationHooks?.({ target: session.target, window: win, contents, gui, close: () => this.stop(id) })
     win.on('close', event => { if (session.automation?.closeRequested()) event.preventDefault() })
@@ -198,11 +202,15 @@ class NativeMirrors {
     if (session.manualSetup) return Promise.reject(new Error('iOS setup in progress'))
     if (session.starting) return session.starting
     if (session.backend && !['error', 'disconnected'].includes(session.info.state)) return Promise.resolve()
+    session.firstOpen.resolve()
     let backend: AndroidMirror | AirplayMirror | IosMirror | undefined = session.backend
     session.starting = (async () => {
       if (session.target.platform === 'ios' && session.target.transport === 'usb') {
         const call = new AbortController(); session.setupCalls.add(call)
         try {
+          // Keep the mirror window and setup guidance accessible while a previous
+          // capture still owns a session. Only open the transport after cleanup.
+          if (this.snapshots.has(session.target.key)) await waitForSetup(this.finishSnapshot(session.target.key), call.signal)
           try { await session.backend?.close() }
           catch (error) {
             if (!session.hasConnected) throw error
@@ -261,6 +269,7 @@ class NativeMirrors {
     if (reason === 'gui' && session.automation?.closeRequested()) return Promise.resolve()
     if (session.stopping) return session.stopping
     for (const call of session.setupCalls) call.abort(Error('cancelled'))
+    session.firstOpen.resolve()
     const wasReady = session.ready
     session.automation?.state('stopping')
     session.info.state = 'stopping'; session.ready = false; session.gate.reset()
@@ -291,7 +300,45 @@ class NativeMirrors {
     if (!session || !session.ready || session.stopping || !(session.backend instanceof IosMirror)) throw new Error('iOS control unavailable')
     return session.backend.perform(action, geometry, signal)
   }
-  async dispose() { this.disposed = true; await Promise.all([...this.sessions.keys()].map(id => this.stop(id))) }
+  private async finishSnapshot(key: string) {
+    const entry = this.snapshots.get(key)
+    if (!entry) return
+    await entry.done
+    // Retry cleanup if the previous DELETE could not be confirmed.
+    try { await entry.backend.close() } catch { throw new WdaAllocationUnknown() }
+    if (this.snapshots.get(key) === entry) this.snapshots.delete(key)
+  }
+  async iosWorkspaceSnapshot(target: ITarget, panel: IosWdaPanel, signal: AbortSignal): Promise<IosWdaSnapshot> {
+    signal.throwIfAborted()
+    if (this.disposed || target.platform !== 'ios' || target.transport !== 'usb' || target.state !== 'ready') throw Error('iOS USB device unavailable')
+    if (this.snapshots.has(target.key)) {
+      await waitForSetup(this.finishSnapshot(target.key), signal)
+      return this.iosWorkspaceSnapshot(target, panel, signal)
+    }
+    const session = [...this.sessions.values()].find(session => session.info.deviceKey === target.key)
+    if (session) {
+      if (session.info.state === 'starting' && !session.starting) {
+        await waitForSetup(session.firstOpen.promise, AbortSignal.any([signal, AbortSignal.timeout(15000)]))
+      }
+      if (session.starting) await waitForSetup(session.starting, signal)
+      if (session.stopping || session.info.state !== 'running' || !(session.backend instanceof IosMirror)) throw Error('iOS mirror unavailable')
+      return session.backend.workspaceSnapshot(panel, signal)
+    }
+    const backend = new IosMirror(target)
+    const capture = backend.workspaceSnapshot(panel, signal).finally(async () => {
+      await backend.close()
+      this.snapshots.delete(target.key)
+    })
+    this.snapshots.set(target.key, { backend, done: capture.catch(() => {}) })
+    return capture
+  }
+  async dispose() {
+    this.disposed = true
+    await Promise.all([
+      ...[...this.sessions.keys()].map(id => this.stop(id)),
+      ...[...this.snapshots.values()].map(entry => entry.backend.close()),
+    ])
+  }
   private owner(event: Electron.IpcMainInvokeEvent) {
     const session = [...this.sessions.values()].find(session => session.contents === event.sender)
     if (!session || !session.ready || session.stopping || event.senderFrame !== event.sender.mainFrame) throw new Error('Mirror document unavailable')
@@ -319,6 +366,7 @@ class NativeMirrors {
           if (session.recovery) await waitForSetup(session.recovery.catch(() => {}), call.signal)
           if (session.starting) await waitForSetup(session.starting.catch(() => {}), call.signal)
           call.signal.throwIfAborted()
+          if (this.snapshots.has(session.target.key)) await waitForSetup(this.finishSnapshot(session.target.key), call.signal)
           if (session.backend) {
             await session.backend.close()
             session.backend = undefined

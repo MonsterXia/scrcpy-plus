@@ -60,7 +60,30 @@ try {
       let layout = 'independent'
       globalThis.__plusLayouts = []; globalThis.__plusFocused = []; globalThis.__plusOverviewReads = []
       globalThis.__plusDiscoveryReads = 0; globalThis.__plusTargets = targets; globalThis.__plusSessions = sessions
-      for (const channel of ['getDevices', 'showScreencast', 'getMirrorSessions', 'stopMirrorSession', 'applyMirrorLayout', 'getMirrorLayout', 'focusMirror', 'getDeviceOverview']) ipcMain.removeHandler(channel)
+      for (const channel of ['getDevices', 'showScreencast', 'getMirrorSessions', 'stopMirrorSession', 'applyMirrorLayout', 'getMirrorLayout', 'focusMirror', 'getDeviceOverview', 'ios:workspace', 'ios:cancelWorkspace', 'ios:wdaSnapshot']) ipcMain.removeHandler(channel)
+      const logs = new Map()
+      globalThis.__iosMutations = []
+      ipcMain.handle('ios:workspace', (event, key, request, id) => {
+        if (!targets.some(t => t.platform === 'ios' && t.transport === 'usb' && t.key === key)) throw Error('wrong device')
+        switch (request.op) {
+          case 'apps': return [{ name: 'Fixture App', bundleId: 'org.example.fixture', user: true, version: '1', fileSharing: true }]
+          case 'processes': return [{ name: 'Fixture App', pid: 42, bundleId: 'org.example.fixture' }]
+          case 'files': return request.path === '/' ? [{ name: 'Folder', isDirectory: true }] : [{ name: 'fixture.txt', isDirectory: false, size: 7 }]
+          case 'webPages': return [{ app: 'Safari', title: 'Fixture page', targetId: 'page1', url: 'https://example.org' }]
+          case 'webDom': return [{ html: '<html>fixture</html>', truncated: false }]
+          case 'logs': {
+            event.sender.send('ios:workspaceLogs', id, [{ timestamp: '10:00', process: 'Fixture', pid: 42, level: 'Info', message: 'fixture log line' }])
+            return new Promise(resolve => logs.set(id, resolve))
+          }
+          default: globalThis.__iosMutations.push(request.op); return []
+        }
+      })
+      ipcMain.handle('ios:cancelWorkspace', (_event, id) => { logs.get(id)?.([]); logs.delete(id) })
+      ipcMain.handle('ios:wdaSnapshot', (_event, _key, panel) => ({
+        png: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/avkAAAAASUVORK5CYII=',
+        width: 1, height: 1, screenWidth: 1, screenHeight: 1,
+        elements: panel === 'layout' ? [{ type: 'XCUIElementTypeButton', name: 'Fixture element', depth: 0 }] : undefined,
+      }))
       ipcMain.handle('getDevices', () => { globalThis.__plusDiscoveryReads++; return { targets, errors: [] } })
       ipcMain.handle('showScreencast', (_, key) => {
         const target = targets.find(target => target.key === key)
@@ -190,7 +213,7 @@ try {
     }
     await page.locator('#workspace-device').selectOption('ios:01234567-1234567890abcdef')
     await page.waitForFunction(()=>document.querySelector('[data-overview-field="ohosVersion"]')?.textContent==='iOS 26.4')
-    assert.equal(await page.locator('[data-navigation="shell"]').isDisabled(),true)
+    assert.equal(await page.locator('[data-navigation="shell"]').isDisabled(),false)
     assert.equal(await page.locator('#workspace-device option[value="ios:airplay-receiver"]').count(),0)
     assert.equal(await page.locator('[data-overview-field="model"]').innerText(),'iPhone14,5')
     assert.equal(await page.locator('[data-overview-field="serialNum"]').evaluate(n=>n.closest('button').disabled),true)
@@ -199,6 +222,27 @@ try {
       await page.waitForFunction(theme=>document.querySelector('[data-workspace]').dataset.theme===theme,theme)
       await page.screenshot({path:path.join(directory,`${language}-overview-ios-${theme}.png`)})
     }
+    const navigate = async id => page.locator('[data-navigation="' + id + '"]').click()
+    await navigate('application')
+    await page.getByText('Fixture App', { exact: true }).waitFor()
+    await page.locator('[data-ios-tool="application"] li button').last().click()
+    await page.locator('[data-confirm-cancel]').click()
+    assert.deepEqual(await application.evaluate(() => globalThis.__iosMutations), [])
+    await navigate('process')
+    await page.getByText('Fixture App', { exact: true }).waitFor()
+    await navigate('shell')
+    await page.getByRole('button', { name: 'Folder /' }).click()
+    await page.getByText('fixture.txt').waitFor()
+    await navigate('hilog')
+    await page.locator('[data-ios-tool="hilog"] pre').filter({ hasText: 'fixture log line' }).waitFor()
+    await navigate('webview')
+    await page.getByRole('button', { name: /Fixture page/ }).click()
+    await page.locator('[data-ios-web] pre').filter({ hasText: '<html>fixture</html>' }).waitFor()
+    await navigate('screenshot')
+    await page.locator('[data-ios-wda-panel="screenshot"] svg').waitFor()
+    await navigate('layout')
+    await page.getByText('Fixture element', { exact: true }).first().waitFor()
+    await navigate('overview')
     await page.locator('#workspace-device').selectOption('harmony:a')
     await page.waitForFunction(() => document.querySelector('[data-overview-field="name"]')?.textContent === 'HUAWEI Mate 80')
     assert.equal(await page.locator('[data-navigation="shell"]').isDisabled(), false)
@@ -242,7 +286,7 @@ try {
     assert.deepEqual(errors, [])
     report.cases.push({ language, liveLanguageCases, sidebarCases,
       batchSelection: true, focusWithoutRestart: true, layoutScopeAllSessions: true, stopIsolation: true,
-      iosReceiverSeparated: true, overviewPlatforms: ['android', 'harmony', 'ios-usb'], repeatedDiscoveryPreservesOverview: true,
+      iosReceiverSeparated: true, overviewPlatforms: ['android', 'harmony', 'ios-usb'], iosToolPanels: ['application','process','shell','hilog','webview','screenshot','layout'], repeatedDiscoveryPreservesOverview: true,
       sameGeometryInBothThemes: true, runtime: await application.evaluate(() => process.versions.electron), passed: true })
     await application.close(); application = undefined
   }

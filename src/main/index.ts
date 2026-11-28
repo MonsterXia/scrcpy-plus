@@ -5,6 +5,8 @@ import * as main from './window/main'
 import * as terminal from 'share/main/window/terminal'
 import * as hdc from './lib/hdc'
 import * as devices from './lib/devices'
+import { initIosWorkspace } from './lib/devices/ios-workspace'
+import { initIosWdaTools } from './lib/devices/ios-wda-tools-ipc'
 import { initAndroidTools, disposeAndroidTools } from './lib/devices/androidTools'
 import { getWin } from 'share/main/lib/window'
 import * as updater from './lib/updater'
@@ -26,7 +28,6 @@ app.on('ready', () => {
   updater.init()
   terminal.init()
   hdc.init()
-  devices.init(disposeAndroidTools)
   const instanceId = randomUUID()
   const service = createAutomationRuntime(instanceId, app.getVersion())
   attachAutomationLifecycle(app, () => {
@@ -34,6 +35,14 @@ app.on('ready', () => {
   }, code => logger.error(code))
   screencastPreparation.init()
   main.showWin()
+  const iosWorkspace = initIosWorkspace(getWin('main').webContents, devices.getCurrentDevice)
+  const reconcileWdaTools = initIosWdaTools(devices.getCurrentDevice)
+  devices.init(async () => {
+    await Promise.all([iosWorkspace.stopAll(), disposeAndroidTools()])
+  }, targets => {
+    iosWorkspace.reconcile(targets)
+    reconcileWdaTools(targets)
+  })
   initAndroidTools(getWin('main').webContents)
   menu.init()
 })

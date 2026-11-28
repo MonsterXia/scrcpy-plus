@@ -1,3 +1,5 @@
+import type { IpcIosWdaSnapshot, IpcCancelIosWdaSnapshot } from 'common/iosWdaTools'
+import type { RunIosWorkspace } from 'common/iosWorkspace'
 import type { IpcIosSetup } from 'common/iosProvisioning'
 import type { FrameResponse, FrameState } from 'common/automation/frames'
 import {
@@ -77,6 +79,10 @@ function toolInvoke<T extends (key: string, ...args: any[]) => any>(channel: str
 export default Object.assign(mainObj, {
   automationFrameState: invoke<(state: FrameState) => Promise<void>>('automationFrameState'),
   automationFrameResult: invoke<(requestId: string, result: FrameResponse) => Promise<void>>('automationFrameResult'),
+  iosWdaSnapshot: invoke<IpcIosWdaSnapshot>('ios:wdaSnapshot'),
+  cancelIosWdaSnapshot: invoke<IpcCancelIosWdaSnapshot>('ios:cancelWdaSnapshot'),
+  runIosWorkspace: invoke<RunIosWorkspace>('ios:workspace'),
+  cancelIosWorkspace: invoke<(id: string) => Promise<void>>('ios:cancelWorkspace'),
   iosSetup: invoke<IpcIosSetup>('iosSetup'),
   nativeMirrorInfo: invoke<IpcNativeMirrorInfo>('nativeMirrorInfo'),
   nativeMirrorOpen: invoke<IpcNativeMirrorOpen>('nativeMirrorOpen'),

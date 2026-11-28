@@ -12,6 +12,10 @@ import Webview from './components/webview/Webview'
 import Hilog from './components/hilog/Hilog'
 import SettingsContent from './components/settings/SettingsContent'
 import Workspace from './components/workspace/Workspace'
+import IosDeviceTools from './components/ios/IosDeviceTools'
+import IosWdaTools from './components/ios/IosWdaTools'
+import IosWebTools from './components/ios/IosWebTools'
+import { t } from 'common/util'
 import Panel from './components/workspace/Panel'
 import { PannelLoading } from './components/common/loading'
 import useHapDrop from '../lib/useHapDrop'
@@ -36,6 +40,17 @@ export default observer(function App() {
     { id: 'hilog', content: <Hilog /> },
     { id: 'webview', content: <Webview /> },
   ]
+  const ios = store.overviewTarget?.platform === 'ios' ? store.overviewTarget : null
+  const panel = store.panel
+  const iosTool = ios && panel !== 'settings' && panel !== 'devices' && panel !== 'overview' && (
+    <Panel key={ios.key + '/' + panel} id={panel} active>
+      {ios.state !== 'ready' || ios.transport !== 'usb' ? <p role="status">{t('iosToolsTrust')}</p> :
+        panel === 'webview' ? <IosWebTools deviceKey={ios.key} /> :
+        panel === 'screenshot' || panel === 'layout' ? <IosWdaTools deviceKey={ios.key} panel={panel} /> :
+        panel === 'application' || panel === 'shell' || panel === 'hilog' || panel === 'process' ?
+          <IosDeviceTools deviceKey={ios.key} panel={panel} /> : null}
+    </Panel>
+  )
   return (
     <>
       <Workspace onOpenSettings={openSettings}>
@@ -58,7 +73,7 @@ export default observer(function App() {
               </Panel>
             ))}
           </div>
-        ) : !store.ready && !['overview', 'settings'].includes(store.panel) ? (
+        ) : store.ready && ios ? iosTool : !store.ready && !['overview', 'settings'].includes(store.panel) ? (
           <PannelLoading />
         ) : null}
       </Workspace>
