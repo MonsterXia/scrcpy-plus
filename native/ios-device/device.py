@@ -1,4 +1,4 @@
-"""Private stdio device helper. No arbitrary command, path, port or executable inputs."""
+"""Private stdio device helper for WDA provisioning and USB workspace services."""
 import asyncio
 import json
 import logging
@@ -196,4 +196,9 @@ def main():
         emit({'error':error_code(e), 'category':type(e).__name__, **({'module':e.name} if isinstance(e, ModuleNotFoundError) else {})})
         sys.exit(1)
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    if sys.argv[1:] in (['--workspace'], ['--workspace', '--cancel-on-eof']):
+        from workspace import main as workspace_main
+        workspace_main(cancel_on_eof='--cancel-on-eof' in sys.argv[2:])
+    else:
+        main()

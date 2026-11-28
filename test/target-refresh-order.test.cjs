@@ -187,9 +187,11 @@ test('USB iPhone overview selection survives restore and polling without changin
   const f=await fixture({initialize:false,saved:{panel:'shell',overviewTarget:iphone,target:{key:'h',platform:'harmony'}}})
   const devices=[{key:'h',platform:'harmony'},iphone,{key:'ios:airplay-receiver',platform:'ios',transport:'receiver'}]
   f.requests[0].resolve(devices);await tick()
-  assert.equal(f.store.overviewTarget.key,iphone.key);assert.equal(f.store.panel,'overview');assert.equal(f.store.target,null);assert.equal(f.store.harmonyTarget.key,'h')
-  f.store.selectPanel('application');assert.equal(f.store.panel,'overview')
+  assert.equal(f.store.overviewTarget.key,iphone.key);assert.equal(f.store.panel,'shell');assert.equal(f.store.target,null);assert.equal(f.store.harmonyTarget.key,'h')
+  f.store.selectPanel('application');assert.equal(f.store.panel,'application')
   f.store.selectOverviewTarget('ios:airplay-receiver');assert.equal(f.store.overviewTarget.key,iphone.key)
   const request=f.store.refreshTargets();f.requests[1].resolve(devices.map(d=>({...d})));await request
   assert.equal(f.store.overviewTarget.key,iphone.key)
+  const disconnected=f.store.refreshTargets();f.requests[2].resolve(devices.filter(d=>d!==iphone));await disconnected
+  assert.equal(f.store.panel,'overview');assert.equal(f.store.overviewTarget.key,'h')
 })

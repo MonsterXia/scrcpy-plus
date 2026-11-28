@@ -76,7 +76,6 @@ class Store extends BaseStore {
     this.overviewTarget = selected
     setMainStore('overviewTarget', selected)
     if (selected && (!selected.platform || selected.platform === 'harmony')) this.selectTarget(selected)
-    if (selected?.platform === 'ios') this.selectPanel(this.panel)
   }
   selectMirrorTarget = (target: string | ITarget | null) => {
     const selected = isStr(target) ? find(this.targets, ({ key }) => key === target) : target
@@ -85,8 +84,7 @@ class Store extends BaseStore {
     setMainStore('mirrorTarget', this.mirrorTarget)
   }
   selectPanel(panel: string) {
-    const next = normalizePanel(panel)
-    this.panel = this.overviewTarget?.platform === 'ios' && !['overview', 'devices', 'settings'].includes(next) ? 'overview' : next
+    this.panel = normalizePanel(panel)
     setMainStore('panel', this.panel)
   }
   refreshTargets = async () => {
@@ -122,7 +120,12 @@ class Store extends BaseStore {
     const overviewTargets = targets.filter(target => target.platform !== 'ios' || target.transport === 'usb')
     const overview = overviewTargets.find(target => target.key === this.overviewTarget?.key)
     if (overview) runInAction(() => { this.overviewTarget = overview })
-    else if (this.overviewTarget || overviewTargets.length) this.selectOverviewTarget(overviewTargets[0] || null)
+    else if (this.overviewTarget || overviewTargets.length) {
+      if (this.overviewTarget?.platform === 'ios' && !['overview', 'settings', 'devices'].includes(this.panel)) {
+        this.selectPanel('overview')
+      }
+      this.selectOverviewTarget(overviewTargets[0] || null)
+    }
     return success
   }
   private async init() {

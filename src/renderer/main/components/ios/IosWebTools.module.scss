@@ -1,0 +1,95 @@
+.page {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  gap: 14px;
+  overflow: auto;
+  color: var(--workspace-text);
+  background: var(--workspace-surface);
+  h1, h2, p { margin: 0; }
+  h1 { font-size: 23px; font-weight: 650; }
+  h2 { font-size: 15px; font-weight: 600; }
+  button {
+    font: inherit;
+    color: inherit;
+    background: var(--workspace-surface);
+    border: 1px solid var(--workspace-line);
+    border-radius: 7px;
+    padding: 7px 12px;
+    cursor: pointer;
+    &:hover:enabled { background: var(--workspace-hover); }
+    &:disabled { opacity: .5; cursor: default; }
+  }
+  :focus-visible { outline: 2px solid var(--workspace-accent); outline-offset: -2px; }
+}
+.header, .documentHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.header p, .hint, .identity {
+  color: var(--workspace-secondary);
+  line-height: 1.5;
+}
+.header p { margin-top: 5px; }
+.error { color: var(--workspace-danger); }
+.body {
+  display: grid;
+  grid-template-columns: minmax(175px, 34%) minmax(0, 1fr);
+  flex: 1;
+  min-height: 180px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 9px;
+  overflow: hidden;
+}
+.pages {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  overflow: auto;
+  border-right: 1px solid var(--workspace-line);
+  button {
+    display: grid;
+    gap: 4px;
+    width: 100%;
+    min-width: 0;
+    text-align: left;
+    border-color: transparent;
+    &[aria-pressed='true'] {
+      background: var(--workspace-selected);
+      border-color: var(--workspace-accent);
+    }
+  }
+  strong, span, small { overflow-wrap: anywhere; }
+  span, small { color: var(--workspace-secondary); }
+}
+.document {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 15px;
+  overflow: auto;
+  pre {
+    flex: 1;
+    margin: 0;
+    padding: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    overflow: auto;
+    user-select: text;
+    background: var(--workspace-bg);
+    border-radius: 6px;
+  }
+}
+.identity { overflow-wrap: anywhere; }
+@media (max-width: 850px) {
+  .body { display: flex; flex-direction: column; min-height: 260px; }
+  .pages { max-height: 36%; flex-shrink: 0; border-right: 0; border-bottom: 1px solid var(--workspace-line); }
+  .document { flex: 1; }
+}

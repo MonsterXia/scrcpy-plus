@@ -273,7 +273,9 @@ USB iOS GUI 的 `NativeInputFlow` 在 renderer 保持一个在途输入 IPC，�
 
 成功的 iOS 发现结果由 `devices/index` 交给 `nativeMirrors.reconcileIos`。USB 缺席不销毁窗口，保留 cleanup 所有权；同一 ready device key 重现后串行关闭旧后端、重开并按之前模式恢复视频（共享输入队列）。旧后端迟到的 frame/state 不得更新新会话，关闭后的窗口不得因发现事件复活。视频 stop 失败必须由 ready + standalone GET 确认精确 capture ID 不存在，不能凭 404 或换了 WDA session 就假定资源已清理。自动化 connected 恢复只解除 error/disconnected 至 starting，仍等待新的 renderer presentation；renderer 同步重置失败输入流。
 
-USB iPhone 概览由 `devices/ios-usbmux.getIosOverview` 处理，仅通过 lockdown 获取固定字段，8 秒总超时，和 WDA/投屏生命周期独立。Store 恢复和选择允许 USB iPhone，iOS 的设备工具导航禁用，安卓七项工具按设备 key 走 ADB；实际未返回的字段显示未知，不猜测硬件参数。
+USB iPhone 概览由 `devices/ios-usbmux.getIosOverview` 处理，仅通过 lockdown 获取固定字段，8 秒总超时，和 WDA/投屏生命周期独立。Store 恢复和选择允许 USB iPhone，USB iPhone 使用独立的 iOS 设备工具，安卓七项工具按设备 key 走 ADB；实际未返回的字段显示未知，不猜测硬件参数。
+
+USB iPhone 侧栏通过 `components/ios/` 按设备及当前面板挂载。应用、进程、文件、日志和网页读取从 `ios:workspace` 经 `devices/ios-workspace.ts` 校验发起窗口、设备及参数，再启动随包的 `ios-device --workspace --cancel-on-eof`。日志事件按请求 ID 分批，离开页面、设备断开或渲染进程退出会取消读取。截图与布局通过 `ios:wdaSnapshot` 复用活动投屏的 WDA 会话，或临时取得并释放专用会话。网页检查在 `native/ios-device/web_inspection.py` 中按目标读取 DOM。
 
 USB iOS 曾经连接成功后，即使 USB 发现始终在线，后端 disconnected/error 也标记 reconnectPending；设备轮询串行重建并保留 videoRequested。首次 WDA 准备失败不自动重复创建会话。已绑定的专用 WDA 在旧会话清理失败或连接准备返回状态未知时，由 nativeMirror 调用 ios-provisioning 的 recoverRunner。设备 helper 通过 USB 再次探测状态，仅在持续无响应时按设备绑定精确重启 Runner；普通巡检不触发替换。恢复仍需确认旧资源清理，再在同一窗口重建投屏。USB 投屏重建后，若请求了视频且后端已清理失败的 capture 并恢复截图，设备轮询可间隔至少五秒串行重试 ReplayKit，最多三次。nativeMirrorVideo IPC 的 decode-error 原因保留用户的视频选择；手动关闭视频则取消重试。
 

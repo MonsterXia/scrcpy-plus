@@ -1,5 +1,7 @@
 # 维护来源记录
 
+2026-11-28 用户要求实现 USB iPhone 侧栏工具，独立审查并修复后提 PR，复审与 CI 通过后合入 master。实现清单与真机验证范围见 [RUNBOOK](../../RUNBOOK.md#usb-iphone-工作区2026-11-28)。
+
 2026-11-25 用户授权执行 [1.0.5-dev.4 开发预发布计划](../superpowers/plans/2026-11-25-release-1.0.5-dev.4.md)。
 
 2026-11-20 用户要求独立审查全部本地改动，创建 PR，复审并等 CI 通过后合入 master。审查范围、修复与验证边界见 [RUNBOOK](../../RUNBOOK.md)。

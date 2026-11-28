@@ -44,6 +44,10 @@ export class IosHelper {
     })().catch(() => { this.verified = undefined; throw Error('helper-unavailable') })
     return this.verified
   }
+  async deviceExecutable() {
+    await this.verify()
+    return path.join(this.root, process.platform === 'win32' ? 'device/ios-device.exe' : 'device/ios-device')
+  }
   reply(value: Record<string, unknown>) {
     if (!this.auth || this.auth.child.killed) throw Error('auth-required')
     this.auth.waitingForServer()

@@ -8,9 +8,24 @@ dev.1 合入商店空响应按应用缓存（避免后续图标被全局冷却�
 
 左侧顶部「多端投屏」保留独立入口，窄侧栏显示图标，展开侧栏显示名称。页面按“可用设备 → 勾选批量启动 → 正在投屏”组织；USB iOS 可作为独立设备启动，AirPlay 仍为单独接收器。明暗主题共用布局，仅改变语义颜色。
 
-侧栏不再单独提供设备选择器，选择器移入「概览」顶部，支持 Android、HarmonyOS 和 USB iPhone。`overviewTarget` 持久化概览选择；选中鸿蒙时同步原 `target`（供 HDC 工具使用），选中安卓或 iPhone 不会把其 key 传给 HDC。选中安卓后可使用应用、截图、Shell、Logcat、进程、布局和 WebView 七个工具，操作跟随概览所选的 USB 设备。USB iPhone 提供概览和投屏，从受限页面切换到 iPhone 时回到概览。AirPlay 接收器不进入概览。旧 `mirrorTarget` 配置仍兼容保留，投屏页批量选择使用本页稳定 key 集合，不读写工具选择，也不因选择变化停止已有会话。
+侧栏不再单独提供设备选择器，选择器移入「概览」顶部，支持 Android、HarmonyOS 和 USB iPhone。`overviewTarget` 持久化概览选择；选中鸿蒙时同步原 `target`（供 HDC 工具使用），选中安卓或 iPhone 不会把其 key 传给 HDC。选中安卓后可使用应用、截图、Shell、Logcat、进程、布局和 WebView 七个工具，操作跟随概览所选的 USB 设备。USB iPhone 提供概览、投屏及独立的 iOS 设备工具。主界面按设备 key 和当前页面创建工具，离开页面时释放对应请求。AirPlay 接收器不进入概览。旧 `mirrorTarget` 配置仍兼容保留，投屏页批量选择使用本页稳定 key 集合，不读写工具选择，也不因选择变化停止已有会话。
 
 概览只在设备 key/平台/连接状态改变时重置，五秒设备轮询产生同一设备的新对象不会清空内容或重读。`getDeviceOverview(key)` 根据当前发现的平台分派：鸿蒙复用原有限 HDC 读取，安卓执行固定只读 `getprop`、`uname -r`、`wm size`、`cat /proc/meminfo`。安卓有活动投屏时复用其 ADB 连接；无投屏时临时连接，读取后释放；停止中的连接完成清理后才允许临时连接。每条 shell 读取有超时与输出上限，超时仅取消该 shell，不关闭共享投屏连接。 USB iPhone 经 usbmux + lockdown 对显示字段逐项 GetValue，只读名称、系统/构建版本、产品/硬件型号、架构及序列号；总预算 8 秒，读取结束释放 socket，不创建 WDA session，不枚举完整属性字典。缺失字段显示未知，不以 UDID 冒充序列号。
+
+### USB iPhone 工具
+
+| 侧栏 | 可用操作与前提 |
+| --- | --- |
+| 应用 | 浏览应用、启动应用、从本机选择已签名 IPA 安装、确认卸载用户应用。启动需要可用的开发者服务。 |
+| 截屏 | 通过运行中的 WDA 获取并保存 PNG；投屏时复用本应用持有的会话。 |
+| 文件 | AFC 媒体目录或已开启文件共享的应用文稿，支持逐级浏览与文件大小。 |
+| 设备日志 | 读取 USB 设备日志，按内容、进程、PID 或级别筛选。页面保留最近 1000 条。 |
+| 进程 | 显示进程与 PID。开发者服务可用且能验证用户应用归属时可结束进程。 |
+| 布局 | 查看 XCTest 辅助功能元素及其在截图中的位置。需运行已签名 WDA。 |
+| 网页 | 枚举 Safari 和允许检查的 WKWebView，手动刷新页面及只读 DOM。需开启网页检查器。 |
+
+应用、文件、日志、进程和网页使用主窗口专用 IPC `ios:workspace` 与 `ios:cancelWorkspace`；主进程验证所选 USB 设备，再为每个操作启动随包的 `ios-device --workspace --cancel-on-eof`。日志分批发送。截屏与布局使用 `ios:wdaSnapshot` 与 `ios:cancelWdaSnapshot`。AirPlay 仅提供投屏接收。
+
 
 导航入口为 `workspace/Workspace.tsx`；设备选择为 `workspace/DeviceSwitcher.tsx`；状态与生命周期见 `store/index.ts`、`overview/Overview.tsx`、`main/lib/devices/androidOverview.ts`。此次模拟设备的 Electron、中英文、宽窄窗口与明暗主题证据见 [工作区验证](evidence/mirror-workspace-2026-11-16/ui.json)。早期独立选择/九种组合记录是历史实现证据，不代表当前 UI。
 

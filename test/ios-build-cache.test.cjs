@@ -67,7 +67,7 @@ test('provisioning refreshes an existing default unsigned app before packaging i
   // orchestration, filesystem, packaging selection and cache hashing execute.
   write('script/ios-wda.mjs', `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(app)}, 'current Runner')`)
   write('native/ios-device/package_wda.py', "require('node:fs').copyFileSync(process.argv[2], process.argv[3])")
-  for (const file of ['native/ios-sign/Cargo.toml', 'native/ios-sign/Cargo.lock', 'native/ios-sign/src/main.rs', 'native/ios-device/device.py', 'native/ios-device/requirements.lock', 'native/ios-device/validate_ipa.py', 'native/ios-device/notices.py', 'vendor/ios-wda/manifest.json', 'vendor/ios-wda/session-ownership.patch']) write(file, 'fixture')
+  for (const file of ['native/ios-sign/Cargo.toml', 'native/ios-sign/Cargo.lock', 'native/ios-sign/src/main.rs', 'native/ios-device/device.py', 'native/ios-device/workspace.py', 'native/ios-device/web_inspection.py', 'native/ios-device/requirements.lock', 'native/ios-device/validate_ipa.py', 'native/ios-device/notices.py', 'vendor/ios-wda/manifest.json', 'vendor/ios-wda/session-ownership.patch']) write(file, 'fixture')
   write('preload.cjs', `const cp = require('node:child_process'); const real = cp.spawnSync;
     cp.spawnSync = (file, args, options) => file === 'cargo' ? {status: 23} : real(file, args, options);
     require('node:module').syncBuiltinESMExports(); Object.defineProperty(process, 'platform', {value:'darwin'});`)
@@ -82,7 +82,7 @@ test('provisioning manifest hashes framework files without reading directory sym
   if (process.platform === 'win32') return t.skip('macOS framework symlink layout')
   const { root, write } = fixture(t)
   write('script/build-ios-provisioning.mjs', fs.readFileSync('script/build-ios-provisioning.mjs'))
-  for (const file of ['native/ios-sign/Cargo.toml', 'native/ios-sign/Cargo.lock', 'native/ios-sign/src/main.rs', 'native/ios-device/device.py', 'native/ios-device/requirements.lock', 'native/ios-device/package_wda.py', 'native/ios-device/validate_ipa.py', 'native/ios-device/notices.py', 'script/ios-wda.mjs', 'vendor/ios-wda/session-ownership.patch', 'vendor/ios-wda/LICENSE']) write(file, 'fixture')
+  for (const file of ['native/ios-sign/Cargo.toml', 'native/ios-sign/Cargo.lock', 'native/ios-sign/src/main.rs', 'native/ios-device/device.py', 'native/ios-device/workspace.py', 'native/ios-device/web_inspection.py', 'native/ios-device/requirements.lock', 'native/ios-device/package_wda.py', 'native/ios-device/validate_ipa.py', 'native/ios-device/notices.py', 'script/ios-wda.mjs', 'vendor/ios-wda/session-ownership.patch', 'vendor/ios-wda/LICENSE']) write(file, 'fixture')
   write('vendor/ios-wda/manifest.json', JSON.stringify({ commit: 'fixture' }))
   write('input.ipa', 'unsigned Runner')
   write('native/ios-sign/target/release/scrcpy-plus-ios-sign', 'signer')

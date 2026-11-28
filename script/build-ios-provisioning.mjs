@@ -36,7 +36,7 @@ if(process.env.IOS_WDA_IPA) {
  }
  run(python,['native/ios-device/package_wda.py',app,ipa])
 }
-const sources=['native/ios-sign/Cargo.toml','native/ios-sign/Cargo.lock','native/ios-sign/src/main.rs','native/ios-device/device.py','native/ios-device/requirements.lock','native/ios-device/package_wda.py','native/ios-device/validate_ipa.py','native/ios-device/notices.py','script/build-ios-provisioning.mjs','script/ios-wda.mjs','vendor/ios-wda/manifest.json','vendor/ios-wda/session-ownership.patch']
+const sources=['native/ios-sign/Cargo.toml','native/ios-sign/Cargo.lock','native/ios-sign/src/main.rs','native/ios-device/device.py','native/ios-device/workspace.py','native/ios-device/web_inspection.py','native/ios-device/requirements.lock','native/ios-device/package_wda.py','native/ios-device/validate_ipa.py','native/ios-device/notices.py','script/build-ios-provisioning.mjs','script/ios-wda.mjs','vendor/ios-wda/manifest.json','vendor/ios-wda/session-ownership.patch']
 const stamp=hash(Buffer.concat([Buffer.from(process.platform+process.arch),...await Promise.all(sources.map(f=>fs.readFile(f))),await fs.readFile(ipa)]))
 const old=JSON.parse(await fs.readFile(path.join(output,'manifest.json'),'utf8').catch(()=> '{}'))
 if(old.stamp===stamp) {
